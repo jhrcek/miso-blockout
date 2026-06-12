@@ -1,0 +1,57 @@
+cabal-version:   3.0
+name:            miso-blockout
+version:         0.1.0.0
+synopsis:        A Blockout clone built with miso
+description:     Blockout (3D Tetris) clone running in the browser via GHC WASM
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          Jan Hrček
+maintainer:      Jan Hrček
+copyright:       Jan Hrček @ 2026
+category:        Web
+build-type:      Simple
+extra-doc-files: CHANGELOG.md
+
+flag interactive
+  default: False
+  manual:  True
+
+common warnings
+  ghc-options:
+    -funbox-strict-fields -O2 -ferror-spans -fspecialise-aggressively
+    -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates
+    -Wcompat -Widentities -Wredundant-constraints -fhide-source-paths
+    -Wpartial-fields -Wunrecognised-pragmas
+    -Wunticked-promoted-constructors -Winvalid-haddock
+    -Woperator-whitespace -Wredundant-bang-patterns
+
+common options
+  if arch(wasm32)
+    ghc-options:
+      -no-hs-main -optl-mexec-model=reactor "-optl-Wl,--export=hs_start"
+
+    cpp-options: -DWASM
+
+    if flag(interactive)
+      cpp-options: -DINTERACTIVE
+
+  if arch(javascript)
+    ld-options: -sEXPORTED_RUNTIME_METHODS=HEAP8
+
+executable miso-blockout
+  import:           options, warnings
+  main-is:          Main.hs
+  other-modules:
+    Blockout.Persist
+    Blockout.Pieces
+    Blockout.Types
+    Blockout.Update
+    Blockout.View
+
+  build-depends:
+    , base        <5
+    , containers
+    , miso        >=1.9
+
+  hs-source-dirs:   app
+  default-language: Haskell2010
