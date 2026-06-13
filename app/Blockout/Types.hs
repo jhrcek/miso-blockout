@@ -263,9 +263,13 @@ level m = min 10 (_startLevel m + _cubes m `div` cubesPerLevel (_setup m))
 cubesPerLevel :: Setup -> Int
 cubesPerLevel s = max 12 (pitVolume s `div` 12)
 
--- | Gravity period in 100ms ticks for a given level.
+{- | Gravity period in 100ms ticks for a given level. The original game's
+drop speed decays roughly geometrically with the level (the time to fall
+one layer multiplies by ~0.7 each level), so model it as such, floored at
+2 ticks (0.2s) so the fastest levels stay playable.
+-}
 dropTicks :: Int -> Int
-dropTicks lvl = max 2 (12 - lvl)
+dropTicks lvl = max 2 (round (50 * 0.7 ^^ lvl :: Double))
 
 -- | The slide window after a drop, in 100ms ticks (manual p.10 note).
 lockTicks :: Int
