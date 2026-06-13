@@ -146,10 +146,12 @@ spawnable s = mapMaybe best (protosOf (setupSet s))
          in dx <= setupW s && dy <= setupL s && dz <= setupD s
     measure q = let (dx, dy, dz) = extent q in (dz, dy, dx)
 
--- | Place a piece centered at the mouth of the pit.
+{- | Place a piece as far into the lower-left corner of the pit's mouth as
+it will go (left is minimum x, lower is maximum y), as in the original.
+-}
 spawnCells :: Setup -> Proto -> [Cell]
 spawnCells s ps = [(x + ox, y + oy, z) | (x, y, z) <- ps]
   where
-    (dx, dy, _) = extent ps
-    ox = (setupW s - dx) `div` 2
-    oy = (setupL s - dy) `div` 2
+    (_, dy, _) = extent ps
+    ox = 0
+    oy = setupL s - dy
