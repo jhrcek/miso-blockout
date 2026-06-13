@@ -491,8 +491,25 @@ rotYccw (sx, _, _) (x, y, z) = (z, y, sx - 1 - x)
 rotZcw (_, sy, _) (x, y, z) = (sy - 1 - y, x, z)
 rotZccw (sx, _, _) (x, y, z) = (y, sx - 1 - x, z)
 
+{- | Round @n@/2 to the nearest integer, breaking ties away from zero.
+Recentering a rotated piece with this (rather than 'div', which floors)
+keeps rotation a true cyclic action: the four offsets accumulated over a
+full turn sum to zero, so repeating any rotation key returns the piece to
+its starting cells instead of drifting sideways.
+-}
+roundHalf :: Int -> Int
+roundHalf n = signum n * ((abs n + 1) `div` 2)
+
 {- | Attempt a rotation. @axis@ (0 = X, 1 = Y, 2 = Z) and @dir@ describe
 the same turn as the discrete @rot@ function and are used to animate it.
+
+The piece turns about the centre of its bounding box. If it does not fit
+in place it is nudged back inside the pit: sideways off a wall, or
+downward when a piece that grew taller would poke out through the mouth.
+Upward kicks are deliberately excluded, as they would let repeated presses
+of one rotation key climb the piece back up against gravity. Away from the
+walls the in-place rotation always fits, so repeating any rotation key
+cycles the piece through its orientations and back to its starting cells.
 -}
 tryRotate :: Int -> Double -> (Dims -> Cell -> Cell) -> Effect parent props Model Action
 tryRotate axis dir rot = do
@@ -509,22 +526,27 @@ tryRotate axis dir rot = do
             sx' = maximum [x | (x, _, _) <- rel'] + 1
             sy' = maximum [y | (_, y, _) <- rel'] + 1
             sz' = maximum [z | (_, _, z) <- rel'] + 1
-            ox = mnx + (sx - sx') `div` 2
-            oy = mny + (sy - sy') `div` 2
-            oz = mnz + (sz - sz') `div` 2
+            ox = mnx + roundHalf (sx - sx')
+            oy = mny + roundHalf (sy - sy')
+            oz = mnz + roundHalf (sz - sz')
+            -- Try the rotation in place first, then nudge it back inside
+            -- the pit: sideways off a wall, or downward (only as far as is
+            -- needed to clear the mouth, z >= 0). Never upward.
             kicks =
-                [ (0, 0, 0)
-                , (-1, 0, 0)
-                , (1, 0, 0)
-                , (0, -1, 0)
-                , (0, 1, 0)
-                , (-2, 0, 0)
-                , (2, 0, 0)
-                , (0, -2, 0)
-                , (0, 2, 0)
-                , (0, 0, -1)
-                , (0, 0, -2)
-                ]
+                (0, 0, 0)
+                    : [ (kx, ky, 0)
+                      | (kx, ky) <-
+                            [ (-1, 0)
+                            , (1, 0)
+                            , (0, -1)
+                            , (0, 1)
+                            , (-2, 0)
+                            , (2, 0)
+                            , (0, -2)
+                            , (0, 2)
+                            ]
+                      ]
+                    ++ [(0, 0, kz) | kz <- [1 .. max 0 (negate oz)]]
             attempts =
                 [ [(x + ox + kx, y + oy + ky, z + oz + kz) | (x, y, z) <- rel']
                 | (kx, ky, kz) <- kicks
