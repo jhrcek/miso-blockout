@@ -253,15 +253,21 @@ ticks = lens _ticks (\r f -> r{_ticks = f})
 -- Derived game parameters
 -----------------------------------------------------------------------------
 
-{- | 11 difficulty levels, 0..10. Larger pits need more cubes per level
-(manual: "In larger pits, you must drop more cubes before the difficulty
-level changes").
+{- | 11 difficulty levels, 0..10. As in the original BlockOut, the level is
+driven by the cumulative volume of /cleared/ cubes, not by cubes dropped. A
+level-up triggers once the cubes cleared reach a threshold of @width * length
+* 2@ per level. Since each cleared layer contributes @width * length@ cubes,
+this reduces to one level bump for every 2 full layers cleared, regardless of
+pit size.
 -}
 level :: Model -> Int
-level m = min 10 (_startLevel m + _cubes m `div` cubesPerLevel (_setup m))
+level m =
+    min 10 (_startLevel m + (_cleared m * layerCubes) `div` cubesPerLevel (_setup m))
+  where
+    layerCubes = setupW (_setup m) * setupL (_setup m)
 
 cubesPerLevel :: Setup -> Int
-cubesPerLevel s = max 12 (pitVolume s `div` 12)
+cubesPerLevel s = setupW s * setupL s * 2
 
 {- | Gravity period in 100ms ticks for a given level. The original game's
 drop speed decays roughly geometrically with the level (the time to fall
