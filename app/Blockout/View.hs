@@ -243,8 +243,12 @@ pitSvg m =
         , P.class_ "pit"
         ]
         ( pitGrid s
-            ++ wellCubes s (_well m)
-            ++ pieceWire s (_spin m) (_piece m)
+            -- When paused, hide the well and the falling piece so players
+            -- cannot study the position while the game is frozen.
+            ++ ( if _status m == Paused
+                    then []
+                    else wellCubes s (_well m) ++ pieceWire s (_spin m) (_piece m)
+               )
             ++ overlay (_status m)
         )
   where
