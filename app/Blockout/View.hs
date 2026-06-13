@@ -714,18 +714,14 @@ sheet =
             ]
         , CSS.selector_
             ".lvl"
-            [ "border" =: "2px solid #2244cc"
-            , "color" =: "#00cc00"
+            [ "color" =: "#006600"
             , CSS.fontSize "22px"
             , CSS.fontWeight "bold"
-            , CSS.padding (CSS.px 10)
             , "cursor" =: "pointer"
             ]
         , CSS.selector_
             ".lvl.sel"
-            [ "background-color" =: "#1a1a1a"
-            , "color" =: "#ffd000"
-            , "border-color" =: "#ffd000"
+            [ "color" =: "#ffd000"
             ]
         , CSS.selector_
             ".name-entry"
