@@ -27,15 +27,13 @@ encodeSetup (Setup w l d st sp) =
 decodeSetup :: MisoString -> Maybe Setup
 decodeSetup t = case reads (fromMisoString t) of
     [((w, l, d, st, sp), "")]
-        | inside 3 7 w
-        , inside 3 7 l
-        , inside 6 18 d
-        , inside 0 2 st
-        , inside 0 2 sp ->
+        | inRange widthRange w
+        , inRange lengthRange l
+        , inRange depthRange d
+        , inRange (0, fromEnum (maxBound :: BlockSet)) st
+        , inRange (0, fromEnum (maxBound :: RotationSpeed)) sp ->
             Just (Setup w l d (toEnum st) (toEnum sp))
     _ -> Nothing
-  where
-    inside lo hi v = lo <= v && v <= (hi :: Int)
 
 {- | Every pit/block-set combination has its own hall of fame; pits with
 reversed width and length share one (manual p.13).

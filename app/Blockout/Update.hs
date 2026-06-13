@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OrPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Update logic: the menu system and the game itself.
@@ -205,11 +206,6 @@ handleKey code key = do
         NameScene name -> nameKey name code key
         FameScene item -> fameSceneKey item code
 
-cycleEnum :: (Bounded a, Enum a, Eq a) => Int -> a -> a
-cycleEnum dir x
-    | dir >= 0 = if x == maxBound then minBound else succ x
-    | otherwise = if x == minBound then maxBound else pred x
-
 menuKey :: MenuItem -> Int -> Effect parent props Model Action
 menuKey item = \case
     38 -> scene .= MenuScene (cycleEnum (-1) item)
@@ -228,10 +224,8 @@ levelKey n code
     | code >= 48 && code <= 57 = pick (code - 48)
     | code >= 96 && code <= 105 = pick (code - 96)
     | otherwise = case code of
-        37 -> move (-1)
-        38 -> move (-1)
-        39 -> move 1
-        40 -> move 1
+        (37; 38) -> move (-1)
+        (39; 40) -> move 1
         13 -> pick n
         27 -> scene .= MenuScene MenuStart
         _ -> pure ()
@@ -299,32 +293,16 @@ gameKey m code = case _status m of
         27 -> abortToMenu
         _ -> pure ()
     Playing -> case code of
-        -- arrows, numpad 4/6/8/2 (with and without NumLock) and digit row
-        37 -> tryMove (-1) 0
-        100 -> tryMove (-1) 0
-        52 -> tryMove (-1) 0
-        39 -> tryMove 1 0
-        102 -> tryMove 1 0
-        54 -> tryMove 1 0
-        38 -> tryMove 0 (-1)
-        104 -> tryMove 0 (-1)
-        56 -> tryMove 0 (-1)
-        40 -> tryMove 0 1
-        98 -> tryMove 0 1
-        50 -> tryMove 0 1
-        -- diagonals: numpad 7/9/1/3, Home/PgUp/End/PgDn, digit row
-        103 -> tryMove (-1) (-1)
-        36 -> tryMove (-1) (-1)
-        55 -> tryMove (-1) (-1)
-        105 -> tryMove 1 (-1)
-        33 -> tryMove 1 (-1)
-        57 -> tryMove 1 (-1)
-        97 -> tryMove (-1) 1
-        35 -> tryMove (-1) 1
-        49 -> tryMove (-1) 1
-        99 -> tryMove 1 1
-        34 -> tryMove 1 1
-        51 -> tryMove 1 1
+        -- move: arrows, numpad 4/6/8/2 (NumLock on) and the digit row
+        (37; 100; 52) -> tryMove (-1) 0
+        (39; 102; 54) -> tryMove 1 0
+        (38; 104; 56) -> tryMove 0 (-1)
+        (40; 98; 50) -> tryMove 0 1
+        -- diagonals: numpad 7/9/1/3, Home/PgUp/End/PgDn and the digit row
+        (103; 36; 55) -> tryMove (-1) (-1)
+        (105; 33; 57) -> tryMove 1 (-1)
+        (97; 35; 49) -> tryMove (-1) 1
+        (99; 34; 51) -> tryMove 1 1
         32 -> hardDrop
         -- Q/W/E counter-clockwise, A/S/D clockwise about X/Y/Z (manual p.9);
         -- the Q/A and W/S pairs are flipped here so the on-screen turn

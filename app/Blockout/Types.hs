@@ -86,6 +86,33 @@ setWeight = \case
     Extended -> 3
 
 -----------------------------------------------------------------------------
+-- Setup parameter ranges and small shared helpers
+-----------------------------------------------------------------------------
+
+{- | Inclusive ranges of the configurable pit dimensions. Shared by the
+setup menu (which cycles within them) and "Blockout.Persist" (which
+validates loaded values against them), so the two cannot drift apart.
+-}
+widthRange, lengthRange, depthRange :: (Int, Int)
+widthRange = (3, 7)
+lengthRange = (3, 7)
+depthRange = (6, 18)
+
+-- | Is a value within an inclusive range?
+inRange :: (Int, Int) -> Int -> Bool
+inRange (lo, hi) v = lo <= v && v <= hi
+
+-- | Wrap a value into an inclusive range, cycling round at either end.
+wrapRange :: (Int, Int) -> Int -> Int
+wrapRange (lo, hi) v = lo + (v - lo) `mod` (hi - lo + 1)
+
+-- | Step a bounded enum one position in the given direction, wrapping round.
+cycleEnum :: (Bounded a, Enum a, Eq a) => Int -> a -> a
+cycleEnum dir x
+    | dir >= 0 = if x == maxBound then minBound else succ x
+    | otherwise = if x == minBound then maxBound else pred x
+
+-----------------------------------------------------------------------------
 -- Scenes (menu system)
 -----------------------------------------------------------------------------
 
@@ -123,18 +150,12 @@ adjustRow row dir s = case row of
          in case [i | (i, p) <- zip [0 ..] (NE.toList ps), p == s] of
                 (i : _) -> ps NE.!! ((i + dir) `mod` length ps)
                 [] -> if dir >= 0 then NE.head ps else NE.last ps
-    1 -> s{setupSet = cyc (setupSet s)}
-    2 -> s{setupSpeed = cyc (setupSpeed s)}
-    3 -> s{setupW = wrap 3 7 (setupW s + dir)}
-    4 -> s{setupL = wrap 3 7 (setupL s + dir)}
-    5 -> s{setupD = wrap 6 18 (setupD s + dir)}
+    1 -> s{setupSet = cycleEnum dir (setupSet s)}
+    2 -> s{setupSpeed = cycleEnum dir (setupSpeed s)}
+    3 -> s{setupW = wrapRange widthRange (setupW s + dir)}
+    4 -> s{setupL = wrapRange lengthRange (setupL s + dir)}
+    5 -> s{setupD = wrapRange depthRange (setupD s + dir)}
     _ -> s
-  where
-    cyc :: (Bounded a, Enum a, Eq a) => a -> a
-    cyc x
-        | dir >= 0 = if x == maxBound then minBound else succ x
-        | otherwise = if x == minBound then maxBound else pred x
-    wrap lo hi v = lo + (v - lo) `mod` (hi - lo + 1)
 
 -----------------------------------------------------------------------------
 -- Model

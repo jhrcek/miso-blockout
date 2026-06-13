@@ -82,9 +82,16 @@ polycubes n =
         , (x, y, z + 1)
         ]
 
+{- | Every orientation of a shape under the 24 proper rotations, each
+translated back to the origin. Contains duplicates when the shape has
+rotational symmetry; 'nub' them when distinct orientations are needed.
+-}
+allOrientations :: Proto -> [Proto]
+allOrientations p = [normalize (map (applyM r) p) | r <- rotations]
+
 -- | Canonical representative of a shape under the 24 proper rotations.
 canon :: Proto -> Proto
-canon p = minimum [normalize (map (applyM r) p) | r <- rotations]
+canon = minimum . allOrientations
 
 -- | Translate the bounding box corner to the origin and sort the cells.
 normalize :: Proto -> Proto
@@ -136,11 +143,9 @@ generated (manual note on the Extended set).
 spawnable :: Setup -> [Proto]
 spawnable s = mapMaybe best (protosOf (setupSet s))
   where
-    best p = case sortOn measure (filter fitsPit orientations) of
+    best p = case sortOn measure (filter fitsPit (nub (allOrientations p))) of
         (q : _) -> Just q
         [] -> Nothing
-      where
-        orientations = nub [normalize (map (applyM r) p) | r <- rotations]
     fitsPit q =
         let (dx, dy, dz) = extent q
          in dx <= setupW s && dy <= setupL s && dz <= setupD s

@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OrPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Rendering: the pit (SVG perspective projection) and the menu screens.
@@ -61,10 +62,14 @@ menuScreen heading contents =
         [P.class_ "menuScreen"]
         (H.div_ [P.class_ "menuScreen-title"] [text heading] : contents)
 
+-- | A base class with the "sel" modifier appended when the row is selected.
+selClass :: MisoString -> Bool -> MisoString
+selClass base sel = if sel then base <> " sel" else base
+
 selectable :: Bool -> Action -> MisoString -> View Model Action
 selectable isSel act label =
     H.div_
-        [ P.class_ (if isSel then "mrow sel" else "mrow")
+        [ P.class_ (selClass "mrow" isSel)
         , onClick act
         ]
         [text (if isSel then "\x25BA " <> label else label)]
@@ -90,7 +95,7 @@ levelView n =
         [ H.div_
             [P.class_ "levels"]
             [ H.div_
-                [ P.class_ (if k == n then "lvl sel" else "lvl")
+                [ P.class_ (selClass "lvl" (k == n))
                 , onClick (PickLevel k)
                 ]
                 [text (ms k)]
@@ -104,7 +109,7 @@ setupView i draft =
   where
     valueRow r =
         H.div_
-            [ P.class_ (if i == r then "srow sel" else "srow")
+            [ P.class_ (selClass "srow" (i == r))
             , onClick (SetupClick r (adjustRow r 1 draft))
             ]
             [ H.span_ [P.class_ "slabel"] [text (rowLabel r)]
@@ -501,8 +506,7 @@ outlineEdges cs =
     occ c = c `elem` cs
     -- a\/d and b\/c are the diagonal pairs of the four cells around an edge
     sharp a b c d = case length (filter id [a, b, c, d]) of
-        1 -> True
-        3 -> True
+        (1; 3) -> True
         2 -> (a && d) || (b && c)
         _ -> False
 
