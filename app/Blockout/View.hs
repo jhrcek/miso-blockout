@@ -580,8 +580,7 @@ sheet =
             ]
         , CSS.selector_
             ".pit"
-            [ "border" =: "2px solid #2244cc"
-            , "background-color" =: "#000000"
+            [ "background-color" =: "#000000"
             ]
         , CSS.selector_
             ".panel"
