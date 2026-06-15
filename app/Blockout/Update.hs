@@ -178,7 +178,8 @@ setupButton b draft = case b of
         setup .= draft
         when (fameKey old /= fameKey draft) loadFame
 
-{- | The game is over and the player pressed Enter: enter the hall of fame
+{- | The game is over and the player pressed Enter:
+if we're not in practice mode, enter the hall of fame
 if the score makes the top ten, otherwise just show it.
 -}
 finishGame :: Effect parent props Model Action
@@ -187,7 +188,10 @@ finishGame = do
     let lowest
             | length (_fame m) < famePlaces = 0
             | otherwise = minimum (map snd (_fame m))
-        qualifies = _score m > 0 && _score m > lowest
+        qualifies =
+            not (_practice m)
+                && _score m > 0
+                && _score m > lowest
     scene .= if qualifies then NameScene "" else FameScene FameStart
 
 -----------------------------------------------------------------------------
@@ -285,7 +289,8 @@ nameKey name code key = case code of
 gameKey :: Model -> Int -> Effect parent props Model Action
 gameKey m code = case _status m of
     Over -> case code of
-        13 -> finishGame
+        -- practice mode has no hall of fame; only Esc, back to the menu
+        13 | not (_practice m) -> finishGame
         27 -> abortToMenu
         _ -> pure ()
     Paused -> case code of

@@ -254,7 +254,7 @@ pitSvg m =
                     then []
                     else wellCubes s (_well m) ++ pieceWire s (_spin m) (_piece m)
                )
-            ++ overlay (_status m)
+            ++ overlay (_practice m) (_status m)
         )
   where
     s = _setup m
@@ -510,17 +510,24 @@ outlineEdges cs =
         2 -> (a && d) || (b && c)
         _ -> False
 
-overlay :: Status -> [View Model Action]
-overlay = \case
+overlay :: Bool -> Status -> [View Model Action]
+overlay isPractice = \case
     Playing -> []
     Paused ->
         [shade, banner 296 "40" "#ffd000" "PAUSED"]
-    Over ->
-        [ shade
-        , banner 260 "44" "#ff3030" "GAME OVER"
-        , banner 310 "20" "#ffffff" "press ENTER for the Hall of Fame"
-        , banner 340 "20" "#ffffff" "ESC for the menu"
-        ]
+    Over
+        -- practice mode has no hall of fame; only the menu is offered
+        | isPractice ->
+            [ shade
+            , banner 260 "44" "#ff3030" "GAME OVER"
+            , banner 310 "20" "#ffffff" "press ESC for the menu"
+            ]
+        | otherwise ->
+            [ shade
+            , banner 260 "44" "#ff3030" "GAME OVER"
+            , banner 310 "20" "#ffffff" "press ENTER for the Hall of Fame"
+            , banner 340 "20" "#ffffff" "ESC for the menu"
+            ]
   where
     shade =
         S.rect_
