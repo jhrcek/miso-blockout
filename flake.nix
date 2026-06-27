@@ -1,7 +1,7 @@
 {
 
   inputs = {
-    miso.url = "github:dmjio/miso";
+    miso.url = "github:dmjio/miso/1.12.0";
   };
 
   outputs = inputs:
