@@ -48,11 +48,15 @@ keyDecoder = D.at [] $ withObject "event" $ \o ->
 gravitySub :: Sub Action
 gravitySub sink = forever (threadDelay 100000 >> sink Tick)
 
-{- | Drives the rotation animation at ~60fps. Started when a rotation
-begins and stopped once the animation has played out.
+{- | Drives the rotation animation via @requestAnimationFrame@, firing once
+per frame with a @DOMHighResTimeStamp@ (ms). The update folds in the real
+elapsed time between frames, so a turn lasts exactly its configured duration
+regardless of the display's refresh rate (a fixed per-tick step would run
+fast on 120Hz screens and stutter under load). Started when a rotation begins
+and stopped once the animation has played out.
 -}
 spinSub :: Sub Action
-spinSub sink = forever (threadDelay 16000 >> sink SpinTick)
+spinSub = rAFSub SpinTick
 
 spinKey :: MisoString
 spinKey = "spin"
@@ -70,16 +74,21 @@ updateModel = \case
     FameLoaded stored ->
         fame .= maybe [] decodeFame stored
     Tick -> gameTick
-    SpinTick -> do
+    SpinTick ts -> do
         m <- use this
-        let step = 0.016 / spinDuration (setupSpeed (_setup m))
         case _spin m of
             Nothing -> stopSub spinKey
-            Just sp
-                | spinT sp + step >= 1 -> do
-                    spin .= Nothing
-                    stopSub spinKey
-                | otherwise -> spin .= Just sp{spinT = spinT sp + step}
+            Just sp -> case spinLast sp of
+                -- first frame: anchor the clock, advance on the next one
+                Nothing -> spin .= Just sp{spinLast = Just ts}
+                Just prev -> do
+                    let dt = (ts - prev) / 1000 -- ms to seconds
+                        step = dt / spinDuration (setupSpeed (_setup m))
+                    if spinT sp + step >= 1
+                        then do
+                            spin .= Nothing
+                            stopSub spinKey
+                        else spin .= Just sp{spinT = spinT sp + step, spinLast = Just ts}
     KeyDown (code, isRepeat, key) ->
         unless isRepeat (handleKey code key)
     NewPiece i -> do
@@ -539,6 +548,6 @@ tryRotate axis dir rot = do
                 let (px, py, pz) = centroid cs
                     (gx, gy, gz) = centroid good
                 piece .= good
-                spin .= Just (Spin axis dir (px - gx, py - gy, pz - gz) 0)
+                spin .= Just (Spin axis dir (px - gx, py - gy, pz - gz) 0 Nothing)
                 when (isNothing (_spin m)) (startSub spinKey spinSub)
             [] -> pure ()
