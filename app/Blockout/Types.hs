@@ -178,8 +178,9 @@ data Spin = Spin
     , spinT :: Double
     -- ^ progress, 0 to 1
     , spinLast :: Maybe Double
-    -- ^ timestamp (ms) of the last animation frame folded into 'spinT', or
-    -- 'Nothing' until the first frame anchors the clock
+    {- ^ timestamp (ms) of the last animation frame folded into 'spinT', or
+    'Nothing' until the first frame anchors the clock
+    -}
     }
     deriving (Eq, Show)
 
@@ -210,7 +211,7 @@ data Model = Model
     , _ticks :: Int
     -- ^ gravity / lock-window tick accumulator
     }
-    deriving Eq
+    deriving (Eq)
 
 initialModel :: Model
 initialModel =

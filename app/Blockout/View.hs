@@ -568,6 +568,9 @@ sheet =
             , CSS.alignItems "center"
             , CSS.fontFamily "'Courier New', monospace"
             , "color" =: "#00cc00"
+            , -- the UI is keyboard/click driven, so suppress text selection
+              -- (e.g. when mashing keys or clicking menu rows)
+              CSS.userSelect "none"
             ]
         , CSS.selector_
             ".blockout"
