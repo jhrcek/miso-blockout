@@ -211,12 +211,19 @@ handleKey :: Int -> MisoString -> Effect parent props Model Action
 handleKey code key = do
     m <- use this
     case _scene m of
+        -- These screens consume the raw key themselves, so they take
+        -- precedence over the global F shortcut below: name entry needs the
+        -- letter keys, and help returns to the menu on any key.
+        NameScene name -> nameKey name code key
+        HelpScene -> gotoMenu
+        -- F goes truly fullscreen from anywhere else (exit with the browser's
+        -- native Esc). Requesting fullscreen needs a user gesture, which this
+        -- keydown provides.
+        _ | code == 70 -> io_ requestFullscreen
         MenuScene item -> menuKey item code
         SetupScene i draft -> setupSceneKey i draft code
         LevelScene n -> levelKey n code
-        HelpScene -> gotoMenu -- any key returns to the menu
         GameScene -> gameKey m code
-        NameScene name -> nameKey name code key
         FameScene item -> fameSceneKey item code
 
 menuKey :: MenuItem -> Int -> Effect parent props Model Action

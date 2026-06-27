@@ -45,7 +45,7 @@ footerText :: Scene -> MisoString
 footerText = \case
     GameScene ->
         "\x2190 \x2192 \x2191 \x2193 / numpad 1-9 move \x2022 Q/A W/S E/D rotate \x2022 SPACE drop \x2022 P pause \x2022 ESC menu"
-    MenuScene{} -> "\x2191 \x2193 select \x2022 ENTER confirm \x2022 or press the first letter"
+    MenuScene{} -> "\x2191 \x2193 select \x2022 ENTER confirm \x2022 or press the first letter \x2022 F fullscreen"
     SetupScene{} -> "\x2191 \x2193 row \x2022 \x2190 \x2192 / ENTER change \x2022 ESC cancel"
     LevelScene{} -> "0-9 pick \x2022 \x2191 \x2193 + ENTER \x2022 ESC back"
     HelpScene -> "press any key to return"
@@ -157,6 +157,7 @@ helpView =
             , ("E / D", "spin about the Z axis")
             , ("SPACE", "drop the block")
             , ("P", "pause / resume")
+            , ("F", "fullscreen (ESC to exit)")
             , ("ESC", "abort game, leave menu")
             ]
         ]
