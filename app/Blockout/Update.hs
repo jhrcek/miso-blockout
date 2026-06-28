@@ -8,6 +8,7 @@ module Blockout.Update
     ( updateModel
     , keyDecoder
     , gravitySub
+    , spinSub
     ) where
 
 import Control.Concurrent (threadDelay)
@@ -15,7 +16,6 @@ import Control.Monad (forever, unless, when)
 import Data.Char (isPrint)
 import Data.Foldable (for_)
 import Data.List (insertBy)
-import Data.Maybe (isNothing)
 import Data.Ord (Down (..), comparing)
 import Miso hiding (status, (!!))
 import qualified Miso.Event.Decoder as D
@@ -48,18 +48,26 @@ keyDecoder = D.at [] $ withObject "event" $ \o ->
 gravitySub :: Sub Action
 gravitySub sink = forever (threadDelay 100000 >> sink Tick)
 
-{- | Drives the rotation animation via @requestAnimationFrame@, firing once
-per frame with a @DOMHighResTimeStamp@ (ms). The update folds in the real
-elapsed time between frames, so a turn lasts exactly its configured duration
-regardless of the display's refresh rate (a fixed per-tick step would run
-fast on 120Hz screens and stutter under load). Started when a rotation begins
-and stopped once the animation has played out.
+{- | Drives the rotation animation off the browser's @requestAnimationFrame@
+loop, throttled to 'spinIntervalMs'. Each tick advances the spin by a fixed
+step, so a turn looks the same regardless of the display's refresh rate.
+
+This is a permanent subscription (see 'Main.app'), not started and stopped
+around each rotation: 'rAFSubElapsed' keeps re-scheduling its frame callback,
+so tearing the subscription down mid-game frees a callback that the browser
+has already queued, which crashes the app. Left always-on, it only touches
+the model when a tick fires and 'SpinTick' no-ops while no spin is in flight.
 -}
 spinSub :: Sub Action
-spinSub = rAFSub SpinTick
+spinSub = rAFSubElapsed spinIntervalMs SpinTick
 
-spinKey :: MisoString
-spinKey = "spin"
+{- | Animation-frame tick interval for the rotation animation, in
+milliseconds (~60fps). 'rAFSubElapsed' throttles the frame loop to this rate,
+and the 'SpinTick' handler advances the spin by the matching fraction of a
+turn, so the two stay in step.
+-}
+spinIntervalMs :: Double
+spinIntervalMs = 16
 
 -----------------------------------------------------------------------------
 -- Update
@@ -74,21 +82,14 @@ updateModel = \case
     FameLoaded stored ->
         fame .= maybe [] decodeFame stored
     Tick -> gameTick
-    SpinTick ts -> do
+    SpinTick -> do
         m <- use this
-        case _spin m of
-            Nothing -> stopSub spinKey
-            Just sp -> case spinLast sp of
-                -- first frame: anchor the clock, advance on the next one
-                Nothing -> spin .= Just sp{spinLast = Just ts}
-                Just prev -> do
-                    let dt = (ts - prev) / 1000 -- ms to seconds
-                        step = dt / spinDuration (setupSpeed (_setup m))
-                    if spinT sp + step >= 1
-                        then do
-                            spin .= Nothing
-                            stopSub spinKey
-                        else spin .= Just sp{spinT = spinT sp + step, spinLast = Just ts}
+        -- no-op between rotations; the subscription is always running
+        for_ (_spin m) $ \sp -> do
+            let step = (spinIntervalMs / 1000) / spinDuration (setupSpeed (_setup m))
+            if spinT sp + step >= 1
+                then spin .= Nothing
+                else spin .= Just sp{spinT = spinT sp + step}
     KeyDown (code, isRepeat, key) ->
         unless isRepeat (handleKey code key)
     NewPiece i -> do
@@ -555,6 +556,5 @@ tryRotate axis dir rot = do
                 let (px, py, pz) = centroid cs
                     (gx, gy, gz) = centroid good
                 piece .= good
-                spin .= Just (Spin axis dir (px - gx, py - gy, pz - gz) 0 Nothing)
-                when (isNothing (_spin m)) (startSub spinKey spinSub)
+                spin .= Just (Spin axis dir (px - gx, py - gy, pz - gz) 0)
             [] -> pure ()

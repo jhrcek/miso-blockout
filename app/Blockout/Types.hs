@@ -177,10 +177,6 @@ data Spin = Spin
     -- ^ old centroid minus new centroid (wall kicks shift the piece)
     , spinT :: Double
     -- ^ progress, 0 to 1
-    , spinLast :: Maybe Double
-    {- ^ timestamp (ms) of the last animation frame folded into 'spinT', or
-    'Nothing' until the first frame anchors the clock
-    -}
     }
     deriving (Eq, Show)
 
@@ -334,8 +330,8 @@ data Action
     | SetupLoaded (Maybe MisoString)
     | FameLoaded (Maybe MisoString)
     | Tick
-    | -- | requestAnimationFrame tick, carrying a DOMHighResTimeStamp (ms)
-      SpinTick Double
+    | -- | throttled requestAnimationFrame tick advancing the rotation animation
+      SpinTick
     | KeyDown (Int, Bool, MisoString)
     | NewPiece Int
     | -- | mouse: activate a main menu item

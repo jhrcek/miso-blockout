@@ -17,7 +17,7 @@ module Main where
 import Miso
 
 import Blockout.Types (Action (..), Model, initialModel)
-import Blockout.Update (gravitySub, keyDecoder, updateModel)
+import Blockout.Update (gravitySub, keyDecoder, spinSub, updateModel)
 import Blockout.View (sheet, viewModel)
 
 -----------------------------------------------------------------------------
@@ -40,6 +40,6 @@ app :: App Model Action
 app =
     (component initialModel updateModel viewModel)
         { styles = [Sheet sheet]
-        , subs = [gravitySub, windowSub "keydown" keyDecoder KeyDown]
+        , subs = [gravitySub, spinSub, windowSub "keydown" keyDecoder KeyDown]
         , mount = Just Boot
         }

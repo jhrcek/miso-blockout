@@ -462,7 +462,7 @@ pieceWire s msp cs =
     corner (x, y, z) = let (px, py, pz) = place (fi x) (fi y) (fi z) in proj s px py pz
     place = case msp of
         Nothing -> (,,)
-        Just (Spin axis dir (ox, oy, oz) t _) ->
+        Just (Spin axis dir (ox, oy, oz) t) ->
             let theta = -(dir * (pi / 2) * (1 - t))
                 (cx0, cy0, cz0) = centroid cs
              in \x y z ->
