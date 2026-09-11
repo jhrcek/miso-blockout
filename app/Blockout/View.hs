@@ -29,8 +29,7 @@ viewModel :: ctx -> props -> Model -> View ctx Model Action
 viewModel _ _ m =
     H.div_
         [P.class_ "blockout"]
-        [ H.div_ [P.class_ "titlebar"] ["BLOCKOUT \x2014 \x1F35C miso"]
-        , case _scene m of
+        [ case _scene m of
             GameScene -> gameLayout m
             MenuScene item -> menuView item
             SetupScene i draft -> setupView i draft
@@ -38,19 +37,35 @@ viewModel _ _ m =
             HelpScene -> helpView
             NameScene name -> nameView m name
             FameScene item -> fameView m item
-        , H.div_ [P.class_ "controls"] [text (footerText (_scene m))]
+        , H.div_ [P.class_ "controls"] [text (footerText m)]
         ]
 
-footerText :: Scene -> MisoString
-footerText = \case
-    GameScene ->
-        "\x2190 \x2192 \x2191 \x2193 / numpad 1-9 move \x2022 Q/A W/S E/D rotate \x2022 SPACE drop \x2022 P pause \x2022 ESC menu"
-    MenuScene{} -> "\x2191 \x2193 select \x2022 ENTER confirm \x2022 or press the first letter \x2022 F fullscreen"
-    SetupScene{} -> "\x2191 \x2193 row \x2022 \x2190 \x2192 / ENTER change \x2022 ESC cancel"
-    LevelScene{} -> "0-9 pick \x2022 \x2191 \x2193 + ENTER \x2022 ESC back"
+footerText :: Model -> MisoString
+footerText m = case _scene m of
+    GameScene -> case _status m of
+        Over
+            | _practice m -> "ESC \x2500 back to the menu"
+            | otherwise -> "ENTER \x2500 hall of fame   \x2502   ESC \x2500 menu"
+        Paused -> "P \x2500 resume   \x2502   ESC \x2500 abort game"
+        Playing ->
+            "\x2190\x2192\x2191\x2193 move   \x2502   Q/A  W/S  E/D rotate   \x2502   SPACE drop   \x2502   P pause   \x2502   ESC menu"
+    MenuScene{} -> "\x2191\x2193 select   \x2502   ENTER confirm   \x2502   or press the first letter   \x2502   F fullscreen"
+    SetupScene{} -> "\x2191\x2193 row   \x2502   \x2190\x2192 / ENTER change   \x2502   ESC cancel"
+    LevelScene{} -> "0-9 pick   \x2502   \x2191\x2193 + ENTER   \x2502   ESC back"
     HelpScene -> "press any key to return"
-    NameScene{} -> "type your name \x2022 ENTER save \x2022 ESC skip"
-    FameScene{} -> "\x2191 \x2193 select \x2022 ENTER confirm \x2022 ESC menu"
+    NameScene{} -> "type your name   \x2502   ENTER save   \x2502   ESC skip"
+    FameScene{} -> "\x2191\x2193 select   \x2502   ENTER confirm   \x2502   ESC menu"
+
+{- | The BLOCK OUT logo of the original: two stacked lines of chunky
+slanted letters in a blue box. The "big" variant heads the menu screens.
+-}
+logo :: Bool -> View ctx Model Action
+logo big =
+    H.div_
+        [P.class_ (if big then "logo big" else "logo")]
+        [ H.div_ [P.class_ "logo-block"] ["BLOCK"]
+        , H.div_ [P.class_ "logo-out"] ["OUT"]
+        ]
 
 -----------------------------------------------------------------------------
 -- Menu screens
@@ -59,8 +74,12 @@ footerText = \case
 menuScreen :: MisoString -> [View ctx Model Action] -> View ctx Model Action
 menuScreen heading contents =
     H.div_
-        [P.class_ "menuScreen"]
-        (H.div_ [P.class_ "menuScreen-title"] [text heading] : contents)
+        [P.class_ "menu"]
+        [ logo True
+        , H.div_
+            [P.class_ "menuScreen"]
+            (H.div_ [P.class_ "menuScreen-title"] [text heading] : contents)
+        ]
 
 -- | A base class with the "sel" modifier appended when the row is selected.
 selClass :: MisoString -> Bool -> MisoString
@@ -72,7 +91,10 @@ selectable isSel act label =
         [ P.class_ (selClass "mrow" isSel)
         , onClick act
         ]
-        [text (if isSel then "\x25BA " <> label else label)]
+        [ H.span_ [P.class_ "marker"] [text (if isSel then "\x25BA" else "")]
+        , text label
+        , H.span_ [P.class_ "marker"] [text (if isSel then "\x25C4" else "")]
+        ]
 
 menuView :: MenuItem -> View ctx Model Action
 menuView item =
@@ -113,7 +135,12 @@ setupView i draft =
             , onClick (SetupClick r (adjustRow r 1 draft))
             ]
             [ H.span_ [P.class_ "slabel"] [text (rowLabel r)]
-            , H.span_ [P.class_ "svalue"] [text ("\x25C4 " <> rowValue r <> " \x25BA")]
+            , H.span_
+                [P.class_ "svalue"]
+                [ H.span_ [P.class_ "arrow"] ["\x25C4"]
+                , text (rowValue r)
+                , H.span_ [P.class_ "arrow"] ["\x25BA"]
+                ]
             ]
     rowLabel :: Int -> MisoString
     rowLabel = \case
@@ -149,8 +176,7 @@ helpView =
     menuScreen "HELP" $
         [ helpRow keys what
         | (keys, what) <-
-            [ ("\x2190 \x2192 \x2191 \x2193", "move the block")
-            , ("numpad 4 6 8 2", "move the block")
+            [ ("\x2190 \x2192 \x2191 \x2193  or numpad", "move the block")
             , ("numpad 7 9 1 3", "move diagonally")
             , ("Q / A", "flip about the X axis")
             , ("W / S", "turn about the Y axis")
@@ -243,23 +269,38 @@ gameLayout m =
 pitSvg :: Model -> View ctx Model Action
 pitSvg m =
     S.svg_
-        [ P.width_ "560"
-        , P.height_ "560"
-        , SP.viewBox_ "0 0 560 560"
+        [ P.width_ (ms pitPx)
+        , P.height_ (ms pitPx)
+        , SP.viewBox_ ("0 0 " <> ms pitPx <> " " <> ms pitPx)
         , P.class_ "pit"
         ]
         ( pitGrid s
             -- When paused, hide the well and the falling piece so players
             -- cannot study the position while the game is frozen.
             ++ ( if _status m == Paused
-                    then []
+                    then [banner "PAUSED"]
                     else wellCubes s (_well m) ++ pieceWire s (_spin m) (_piece m)
                )
-            ++ overlay (_practice m) (_status m)
         )
   where
     s = _setup m
+    banner t =
+        S.text_
+            [ SP.x_ (msd halfSize)
+            , SP.y_ (msd (halfSize + 16))
+            , SP.textAnchor_ "middle"
+            , SP.fill_ "#ffff55"
+            , SP.fontSize_ "40"
+            , SP.fontWeight_ "700"
+            , SP.fontFamily_ "'Chakra Petch', sans-serif"
+            , CSS.style_ ["letter-spacing" =: "6px"]
+            ]
+            [text t]
 
+{- | Left column, as in the original: the level and the pit depth indicator,
+a strip that fills from the bottom with the colour of every layer that
+holds at least one cube.
+-}
 leftPanel :: Model -> View ctx Model Action
 leftPanel m =
     H.div_
@@ -268,7 +309,7 @@ leftPanel m =
         , H.div_
             [P.class_ "stack"]
             [ H.div_
-                [ P.class_ "seg"
+                [ P.class_ (if filled z then "seg on" else "seg")
                 , CSS.style_ ["background-color" =: segColor z]
                 ]
                 []
@@ -276,23 +317,34 @@ leftPanel m =
             ]
         ]
   where
+    filled z = any (\(_, _, cz) -> cz == z) (_well m)
     segColor z
-        | any (\(_, _, cz) -> cz == z) (_well m) = faceColor (setupD (_setup m)) z
-        | otherwise = "#101010"
+        | filled z = faceColor (setupD (_setup m)) z
+        | otherwise = "transparent"
 
+{- | Right column, laid out like the original: the logo, score and cubes
+played on top, high score, pit and block set at the bottom. The gap in
+between hosts the status box (practice / paused / game over).
+-}
 rightPanel :: Model -> View ctx Model Action
 rightPanel m =
     H.div_
         [P.class_ "panel wide"]
-        ( [infoBox "MODE" "PRACTICE" | _practice m]
-            ++ [ infoBox "SCORE" (ms (_score m))
-               , infoBox "CUBES PLAYED" (ms (_cubes m))
-               , infoBox "LAYERS" (ms (_cleared m))
-               , infoBox "HIGH SCORE" (ms (max (fameBest m) (_score m)))
-               , infoBox "PIT" (pitCaption (_setup m))
-               , infoBox "BLOCK SET" (blockSetName (setupSet (_setup m)))
-               ]
-        )
+        [ logo False
+        , infoBox "SCORE" (ms (_score m))
+        , infoBox "CUBES PLAYED" (ms (_cubes m))
+        , H.div_ [P.class_ "spacer"] statusBox
+        , infoBox "HIGH SCORE" (ms (max (fameBest m) (_score m)))
+        , infoBox "PIT" (pitCaption (_setup m))
+        , infoBox "BLOCK SET" (blockSetName (setupSet (_setup m)))
+        ]
+  where
+    statusBox = case _status m of
+        Over -> [H.div_ [P.class_ "status over"] ["GAME", H.br_ [], "OVER"]]
+        Paused -> [H.div_ [P.class_ "status paused"] ["PAUSED"]]
+        Playing
+            | _practice m -> [H.div_ [P.class_ "status practice"] ["PRACTICE"]]
+            | otherwise -> []
 
 pitCaption :: Setup -> MisoString
 pitCaption s =
@@ -309,8 +361,13 @@ infoBox label val =
 -----------------------------------------------------------------------------
 -- Perspective projection into the pit
 -----------------------------------------------------------------------------
+
+-- | Side of the square pit drawing, in CSS pixels.
+pitPx :: Int
+pitPx = 600
+
 halfSize :: Double
-halfSize = 280
+halfSize = fi pitPx / 2
 
 fi :: Int -> Double
 fi = fromIntegral
@@ -326,7 +383,9 @@ proj s x y z =
   where
     cx = fi (setupW s) / 2
     cy = fi (setupL s) / 2
-    unit = 530 / fi (max (setupW s) (setupL s))
+    -- the pit mouth spans the whole drawing (1px inset keeps the outer
+    -- ring's stroke from being clipped)
+    unit = (2 * halfSize - 2) / fi (max (setupW s) (setupL s))
     f = focalOf s
     k = f / (f + z)
 
@@ -363,7 +422,7 @@ lineSeg strokeCol w (ax, ay) (bx, by) =
         ]
 
 gridColor :: MisoString
-gridColor = "#00b400"
+gridColor = "#00aa00"
 
 -- | The green wireframe of the empty pit.
 pitGrid :: Setup -> [View ctx Model Action]
@@ -511,46 +570,46 @@ outlineEdges cs =
         2 -> (a && d) || (b && c)
         _ -> False
 
-overlay :: Bool -> Status -> [View ctx Model Action]
-overlay isPractice = \case
-    Playing -> []
-    Paused ->
-        [shade, banner 296 "40" "#ffd000" "PAUSED"]
-    Over
-        -- practice mode has no hall of fame; only the menu is offered
-        | isPractice ->
-            [ shade
-            , banner 260 "44" "#ff3030" "GAME OVER"
-            , banner 310 "20" "#ffffff" "press ESC for the menu"
-            ]
-        | otherwise ->
-            [ shade
-            , banner 260 "44" "#ff3030" "GAME OVER"
-            , banner 310 "20" "#ffffff" "press ENTER for the Hall of Fame"
-            , banner 340 "20" "#ffffff" "ESC for the menu"
-            ]
-  where
-    shade =
-        S.rect_
-            [ SP.x_ "0"
-            , SP.y_ "0"
-            , P.width_ "560"
-            , P.height_ "560"
-            , SP.fill_ "rgba(0,0,0,0.65)"
-            ]
-    banner y size col t =
-        S.text_
-            [ SP.x_ "280"
-            , SP.y_ (ms (y :: Int))
-            , SP.textAnchor_ "middle"
-            , SP.fill_ col
-            , SP.fontSize_ size
-            , SP.fontFamily_ "'Courier New', monospace"
-            , SP.fontWeight_ "bold"
-            ]
-            [text t]
-
 -----------------------------------------------------------------------------
+-- Stylesheet. The palette is the original's EGA one: blue boxes, cyan
+-- labels, yellow values, green pit, white menu text on black.
+-----------------------------------------------------------------------------
+
+-- | Natural (unscaled) size of the whole layout, in CSS pixels.
+layoutW, layoutH :: Int
+layoutW = pitPx + 2 * 16 + 100 + 220 -- pit, gaps, left and right columns
+layoutH = pitPx + 8 + 26 -- pit, gap, footer
+
+blue, brightBlue, cyan, yellow, white, grey, darkGrey, red :: MisoString
+blue = "#0000aa"
+brightBlue = "#5555ff"
+cyan = "#55ffff"
+yellow = "#ffff55"
+white = "#ffffff"
+grey = "#aaaaaa"
+darkGrey = "#555555"
+red = "#ff5555"
+
+{- | A smooth squarish "tech" face that keeps the arcade feel; sans-serif
+fallback while it loads.
+-}
+uiFont :: MisoString
+uiFont = "'Chakra Petch', 'Trebuchet MS', 'DejaVu Sans', sans-serif"
+
+-- | The chunky slanted face of the logo.
+logoFont :: MisoString
+logoFont = "'Arial Black', Impact, 'Helvetica Neue', Arial, sans-serif"
+
+{- | A two-tone bevelled frame: the original draws its boxes in blue with a
+black inner line; the faint outer glow is the modern touch.
+-}
+boxFrame :: MisoString -> [CSS.Style]
+boxFrame col =
+    [ "border" =: ("3px solid " <> col)
+    , "box-shadow" =: ("inset 0 0 0 1px #000000, inset 0 0 0 2px " <> col <> "40, 0 0 14px " <> col <> "33")
+    , "background-color" =: "#000000"
+    ]
+
 sheet :: StyleSheet
 sheet =
     CSS.sheet_
@@ -566,8 +625,10 @@ sheet =
             [ CSS.display "flex"
             , CSS.justifyContent "center"
             , CSS.alignItems "center"
-            , CSS.fontFamily "'Courier New', monospace"
-            , "color" =: "#00cc00"
+            , CSS.fontFamily uiFont
+            , CSS.fontWeight "600"
+            , "color" =: white
+            , "-webkit-font-smoothing" =: "antialiased"
             , -- the UI is keyboard/click driven, so suppress text selection
               -- (e.g. when mashing keys or clicking menu rows)
               CSS.userSelect "none"
@@ -576,194 +637,322 @@ sheet =
             ".blockout"
             [ CSS.display "flex"
             , "flex-direction" =: "column"
-            , "gap" =: "10px"
+            , "gap" =: "8px"
             , "align-items" =: "stretch"
+            , "width" =: px layoutW
+            , "height" =: px layoutH
             , -- Scale the whole UI up by the largest factor that still fits the
               -- viewport. min() picks the binding dimension, so aspect ratio is
               -- preserved; the body's flex-center keeps it centred and its
-              -- overflow:hidden suppresses scrollbars. 846x680 is the layout's
-              -- natural size (panels + pit, titlebar + footer).
-              "transform" =: "scale(min(100vw / 846px, 100vh / 680px))"
+              -- overflow:hidden suppresses scrollbars.
+              "transform" =: ("scale(min(100vw / " <> px layoutW <> ", 100vh / " <> px layoutH <> "))")
             , "transform-origin" =: "center center"
             ]
+        , -- logo
+          CSS.selector_
+            ".logo"
+            ( boxFrame blue
+                ++ [ CSS.fontFamily logoFont
+                   , CSS.fontWeight "900"
+                   , "font-style" =: "italic"
+                   , CSS.textAlign "center"
+                   , "line-height" =: "1"
+                   , "letter-spacing" =: "1px"
+                   , CSS.padding (CSS.px 10)
+                   , CSS.display "flex"
+                   , "flex-direction" =: "column"
+                   , "align-items" =: "center"
+                   , "gap" =: "4px"
+                   ]
+            )
         , CSS.selector_
-            ".titlebar"
-            [ "background-color" =: "#1a1a1a"
-            , "border" =: "2px solid #555"
-            , "color" =: "#ffd000"
-            , CSS.fontSize "22px"
-            , CSS.fontWeight "bold"
-            , CSS.textAlign "center"
-            , CSS.padding (CSS.px 6)
-            , "letter-spacing" =: "4px"
+            ".logo-block"
+            [ "color" =: white
+            , CSS.fontSize "34px"
+            , "text-shadow" =: ("2px 2px 0 " <> blue <> ", 4px 4px 0 #000066")
             ]
         , CSS.selector_
+            ".logo-out"
+            [ "color" =: red
+            , "background-color" =: blue
+            , CSS.fontSize "26px"
+            , CSS.padding "0 10px 2px 8px"
+            , "-webkit-text-stroke" =: "0.6px #ffffff"
+            , "text-shadow" =: "2px 2px 0 #000066"
+            ]
+        , CSS.selector_
+            ".logo.big"
+            [ "align-self" =: "center"
+            , CSS.padding "8px 36px"
+            , "margin-bottom" =: "12px"
+            ]
+        , CSS.selector_ ".logo.big .logo-block" [CSS.fontSize "44px"]
+        , CSS.selector_ ".logo.big .logo-out" [CSS.fontSize "32px", CSS.padding "0 14px 3px 12px"]
+        , -- game screen
+          CSS.selector_
             ".layout"
             [ CSS.display "flex"
             , "flex-direction" =: "row"
-            , "gap" =: "12px"
+            , "gap" =: "16px"
             , "align-items" =: "stretch"
+            , "height" =: px pitPx
             ]
         , CSS.selector_
             ".pit"
             [ "background-color" =: "#000000"
+            , "flex" =: "none"
             ]
         , CSS.selector_
             ".panel"
             [ CSS.display "flex"
             , "flex-direction" =: "column"
             , "gap" =: "12px"
-            , "width" =: "90px"
+            , "width" =: "100px"
+            , "flex" =: "none"
             ]
         , CSS.selector_
             ".panel.wide"
-            [ "width" =: "170px"
+            [ "width" =: "220px"
             ]
         , CSS.selector_
-            ".stack"
+            ".spacer"
             [ "flex" =: "1"
             , CSS.display "flex"
-            , "flex-direction" =: "column"
-            , "gap" =: "3px"
-            , "border" =: "2px solid #00cc00"
-            , CSS.padding (CSS.px 4)
+            , "align-items" =: "center"
+            , "justify-content" =: "center"
             ]
+        , CSS.selector_
+            ".status"
+            ( boxFrame red
+                ++ [ CSS.fontSize "24px"
+                   , "line-height" =: "1"
+                   , "color" =: yellow
+                   , CSS.textAlign "center"
+                   , CSS.padding "10px 18px"
+                   , "letter-spacing" =: "2px"
+                   , "width" =: "100%"
+                   , "box-sizing" =: "border-box"
+                   ]
+            )
+        , CSS.selector_ ".status.paused" (boxFrame brightBlue)
+        , CSS.selector_ ".status.practice" (boxFrame "#00aa00" ++ ["color" =: "#55ff55", CSS.fontSize "20px"])
+        , CSS.selector_
+            ".stack"
+            ( boxFrame blue
+                ++ [ "flex" =: "1"
+                   , CSS.display "flex"
+                   , "flex-direction" =: "column"
+                   , "gap" =: "3px"
+                   , CSS.padding (CSS.px 6)
+                   ]
+            )
         , CSS.selector_
             ".seg"
             [ "flex" =: "1"
+            , "border-radius" =: "1px"
+            , "transition" =: "background-color 0.15s ease-out"
+            ]
+        , CSS.selector_
+            ".seg.on"
+            [ "box-shadow" =: "inset 0 0 0 1px rgba(255,255,255,0.25)"
             ]
         , CSS.selector_
             ".infobox .label"
-            [ "color" =: "#00cc00"
-            , CSS.fontSize "13px"
-            , CSS.fontWeight "bold"
+            [ "color" =: cyan
+            , CSS.fontSize "14px"
+            , "line-height" =: "1"
             , CSS.textAlign "center"
-            , "margin-bottom" =: "2px"
+            , "margin-bottom" =: "4px"
+            , "letter-spacing" =: "1px"
             ]
         , CSS.selector_
             ".infobox .value"
-            [ "border" =: "2px solid #2244cc"
-            , "color" =: "#ffb000"
-            , CSS.fontSize "18px"
-            , CSS.fontWeight "bold"
-            , CSS.textAlign "right"
-            , CSS.padding (CSS.px 4)
-            ]
+            ( boxFrame blue
+                ++ [ "color" =: yellow
+                   , CSS.fontSize "24px"
+                   , CSS.fontWeight "700"
+                   , "line-height" =: "1"
+                   , CSS.textAlign "center"
+                   , CSS.padding "7px 8px 5px"
+                   , "letter-spacing" =: "1px"
+                   , "white-space" =: "nowrap"
+                   , "overflow" =: "hidden"
+                   ]
+            )
         , CSS.selector_
             ".controls"
-            [ "color" =: "#888888"
+            [ "color" =: darkGrey
             , CSS.fontSize "14px"
+            , CSS.fontWeight "500"
+            , "line-height" =: "26px"
             , CSS.textAlign "center"
-            , "max-width" =: "846px"
+            , "white-space" =: "nowrap"
+            , "overflow" =: "hidden"
             ]
         , -- menu screens
           CSS.selector_
-            ".menuScreen"
-            [ "border" =: "2px solid #2244cc"
-            , "background-color" =: "#000000"
-            , "width" =: "560px"
-            , "min-height" =: "560px"
-            , "box-sizing" =: "border-box"
-            , "margin" =: "0 auto"
+            ".menu"
+            [ "flex" =: "1"
             , CSS.display "flex"
             , "flex-direction" =: "column"
-            , "gap" =: "8px"
-            , CSS.padding (CSS.px 24)
+            , "align-items" =: "center"
+            , "justify-content" =: "center"
             ]
         , CSS.selector_
+            ".menuScreen"
+            ( boxFrame grey
+                ++ [ "width" =: "600px"
+                   , "box-sizing" =: "border-box"
+                   , CSS.display "flex"
+                   , "flex-direction" =: "column"
+                   , "gap" =: "2px"
+                   , CSS.padding "14px 28px 18px"
+                   ]
+            )
+        , CSS.selector_
             ".menuScreen-title"
-            [ "color" =: "#ffd000"
-            , CSS.fontSize "28px"
-            , CSS.fontWeight "bold"
+            [ "color" =: cyan
+            , CSS.fontSize "22px"
+            , CSS.fontWeight "700"
+            , "line-height" =: "1"
             , CSS.textAlign "center"
-            , "letter-spacing" =: "3px"
-            , "margin-bottom" =: "12px"
+            , "letter-spacing" =: "4px"
+            , "margin-bottom" =: "10px"
+            , "border-bottom" =: ("2px solid " <> darkGrey)
+            , "padding-bottom" =: "8px"
             ]
         , CSS.selector_
             ".mrow"
-            [ "color" =: "#00cc00"
-            , CSS.fontSize "20px"
-            , CSS.fontWeight "bold"
-            , CSS.padding (CSS.px 8)
+            [ "color" =: white
+            , CSS.fontSize "22px"
+            , CSS.fontWeight "700"
+            , "line-height" =: "1"
+            , CSS.padding "8px 12px 6px"
             , CSS.textAlign "center"
+            , "letter-spacing" =: "2px"
             , "cursor" =: "pointer"
+            , CSS.display "flex"
+            , "justify-content" =: "center"
+            , "gap" =: "14px"
+            , "transition" =: "background-color 0.08s ease-out, color 0.08s ease-out"
+            ]
+        , CSS.selector_ ".mrow:hover" ["color" =: yellow]
+        , CSS.selector_
+            ".marker"
+            [ "width" =: "18px"
+            , CSS.display "inline-block"
+            , CSS.textAlign "center"
+            , "color" =: yellow
             ]
         , CSS.selector_
             ".srow"
-            [ "color" =: "#00cc00"
-            , CSS.fontSize "17px"
-            , CSS.fontWeight "bold"
-            , CSS.padding (CSS.px 6)
+            [ "color" =: white
+            , CSS.fontSize "18px"
+            , "line-height" =: "1"
+            , CSS.padding "7px 12px 5px"
             , CSS.display "flex"
             , "justify-content" =: "space-between"
+            , "align-items" =: "baseline"
+            , "gap" =: "16px"
             , "cursor" =: "pointer"
+            , "transition" =: "background-color 0.08s ease-out"
             ]
         , CSS.selector_
+            ".svalue"
+            [ "color" =: yellow
+            , CSS.display "flex"
+            , "gap" =: "10px"
+            , "align-items" =: "baseline"
+            ]
+        , CSS.selector_ ".arrow" ["color" =: darkGrey, CSS.fontSize "13px"]
+        , CSS.selector_ ".sel .arrow" ["color" =: cyan]
+        , CSS.selector_
             ".sel"
-            [ "background-color" =: "#1a1a1a"
-            , "color" =: "#ffd000"
+            [ "background-color" =: blue
+            , "color" =: yellow
             ]
         , CSS.selector_
             ".note"
-            [ "color" =: "#00cc00"
-            , CSS.fontSize "15px"
+            [ "color" =: grey
+            , CSS.fontSize "17px"
+            , CSS.fontWeight "500"
+            , "line-height" =: "1.25"
             , CSS.textAlign "center"
+            , CSS.padding "2px 0"
             ]
         , CSS.selector_
             ".note.bright"
-            [ "color" =: "#ffd000"
-            , CSS.fontSize "18px"
-            , CSS.fontWeight "bold"
+            [ "color" =: yellow
+            , CSS.fontSize "22px"
+            , CSS.fontWeight "700"
+            , "letter-spacing" =: "2px"
             ]
         , CSS.selector_
             ".levels"
             [ CSS.display "flex"
             , "flex-direction" =: "column"
             , "align-items" =: "center"
-            , "gap" =: "8px"
-            , "margin-top" =: "16px"
+            , "gap" =: "2px"
             ]
         , CSS.selector_
             ".lvl"
-            [ "color" =: "#006600"
+            [ "color" =: grey
             , CSS.fontSize "22px"
-            , CSS.fontWeight "bold"
+            , CSS.fontWeight "700"
+            , "line-height" =: "1"
+            , "width" =: "120px"
+            , CSS.textAlign "center"
+            , CSS.padding "5px 0 3px"
             , "cursor" =: "pointer"
+            , "transition" =: "background-color 0.08s ease-out, color 0.08s ease-out"
             ]
+        , CSS.selector_ ".lvl:hover" ["color" =: white]
         , CSS.selector_
             ".lvl.sel"
-            [ "color" =: "#ffd000"
+            [ "color" =: yellow
+            , "background-color" =: blue
             ]
         , CSS.selector_
             ".name-entry"
-            [ "border" =: "2px solid #2244cc"
-            , "color" =: "#ffd000"
-            , CSS.fontSize "26px"
-            , CSS.fontWeight "bold"
-            , CSS.textAlign "center"
-            , CSS.padding (CSS.px 10)
-            , "margin" =: "8px 60px"
-            , "min-height" =: "34px"
-            ]
-        , CSS.selector_
+            ( boxFrame blue
+                ++ [ "color" =: yellow
+                   , CSS.fontSize "28px"
+                   , CSS.fontWeight "700"
+                   , "line-height" =: "1"
+                   , CSS.textAlign "center"
+                   , "letter-spacing" =: "3px"
+                   , CSS.padding "10px 10px 8px"
+                   , "margin" =: "10px 80px"
+                   , "min-height" =: "36px"
+                   ]
+            )
+        , -- the ten places run down two columns of five
+          CSS.selector_
             ".fame-table"
-            [ "border" =: "2px solid #00cc00"
-            , CSS.padding (CSS.px 8)
-            , "margin-bottom" =: "10px"
+            [ CSS.display "grid"
+            , "grid-template-columns" =: "1fr 1fr"
+            , "grid-template-rows" =: "repeat(5, auto)"
+            , "grid-auto-flow" =: "column"
+            , "column-gap" =: "36px"
+            , "border-top" =: ("2px solid " <> darkGrey)
+            , "border-bottom" =: ("2px solid " <> darkGrey)
+            , CSS.padding "8px 16px"
+            , "margin" =: "6px 0 10px"
             ]
         , CSS.selector_
             ".frow"
             [ CSS.display "flex"
-            , "gap" =: "10px"
-            , "color" =: "#00cc00"
-            , CSS.fontSize "16px"
-            , CSS.fontWeight "bold"
-            , CSS.padding (CSS.px 2)
+            , "gap" =: "14px"
+            , "color" =: white
+            , CSS.fontSize "17px"
+            , "line-height" =: "1"
+            , CSS.padding "3px 0"
             ]
         , CSS.selector_
             ".frank"
-            [ "width" =: "36px"
+            [ "width" =: "40px"
             , CSS.textAlign "right"
+            , "color" =: grey
             ]
         , CSS.selector_
             ".fname"
@@ -771,6 +960,9 @@ sheet =
             ]
         , CSS.selector_
             ".fscore"
-            [ "color" =: "#ffb000"
+            [ "color" =: yellow
             ]
         ]
+  where
+    px :: Int -> MisoString
+    px n = ms n <> "px"

@@ -207,7 +207,7 @@ data Model = Model
     , _ticks :: Int
     -- ^ gravity / lock-window tick accumulator
     }
-    deriving (Eq)
+    deriving Eq
 
 initialModel :: Model
 initialModel =
