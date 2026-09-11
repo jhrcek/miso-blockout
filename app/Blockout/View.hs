@@ -25,8 +25,8 @@ import Blockout.Types
 -- Scene dispatch
 -----------------------------------------------------------------------------
 
-viewModel :: props -> Model -> View Model Action
-viewModel _ m =
+viewModel :: ctx -> props -> Model -> View ctx Model Action
+viewModel _ _ m =
     H.div_
         [P.class_ "blockout"]
         [ H.div_ [P.class_ "titlebar"] ["BLOCKOUT \x2014 \x1F35C miso"]
@@ -56,7 +56,7 @@ footerText = \case
 -- Menu screens
 -----------------------------------------------------------------------------
 
-menuScreen :: MisoString -> [View Model Action] -> View Model Action
+menuScreen :: MisoString -> [View ctx Model Action] -> View ctx Model Action
 menuScreen heading contents =
     H.div_
         [P.class_ "menuScreen"]
@@ -66,7 +66,7 @@ menuScreen heading contents =
 selClass :: MisoString -> Bool -> MisoString
 selClass base sel = if sel then base <> " sel" else base
 
-selectable :: Bool -> Action -> MisoString -> View Model Action
+selectable :: Bool -> Action -> MisoString -> View ctx Model Action
 selectable isSel act label =
     H.div_
         [ P.class_ (selClass "mrow" isSel)
@@ -74,7 +74,7 @@ selectable isSel act label =
         ]
         [text (if isSel then "\x25BA " <> label else label)]
 
-menuView :: MenuItem -> View Model Action
+menuView :: MenuItem -> View ctx Model Action
 menuView item =
     menuScreen
         "MAIN MENU"
@@ -88,7 +88,7 @@ menuView item =
             ]
         ]
 
-levelView :: Int -> View Model Action
+levelView :: Int -> View ctx Model Action
 levelView n =
     menuScreen
         "STARTING LEVEL"
@@ -103,7 +103,7 @@ levelView n =
             ]
         ]
 
-setupView :: Int -> Setup -> View Model Action
+setupView :: Int -> Setup -> View ctx Model Action
 setupView i draft =
     menuScreen "CHOOSE SETUP" (map valueRow [0 .. 5] ++ map buttonRow buttons)
   where
@@ -144,7 +144,7 @@ predefName s = case [name | (name, p) <- toList predefined, p == s] of
     (name : _) -> name
     [] -> "CUSTOM"
 
-helpView :: View Model Action
+helpView :: View ctx Model Action
 helpView =
     menuScreen "HELP" $
         [ helpRow keys what
@@ -173,7 +173,7 @@ helpView =
             , H.span_ [P.class_ "svalue"] [text what]
             ]
 
-nameView :: Model -> MisoString -> View Model Action
+nameView :: Model -> MisoString -> View ctx Model Action
 nameView m name =
     menuScreen
         "HALL OF FAME"
@@ -183,7 +183,7 @@ nameView m name =
         , H.div_ [P.class_ "name-entry"] [text (name <> "\x2588")]
         ]
 
-fameView :: Model -> FameItem -> View Model Action
+fameView :: Model -> FameItem -> View ctx Model Action
 fameView m item =
     menuScreen "HALL OF FAME" $
         [ H.div_ [P.class_ "note"] [text (setupCaption (_setup m))]
@@ -231,7 +231,7 @@ setupCaption s =
 -- Game screen
 -----------------------------------------------------------------------------
 
-gameLayout :: Model -> View Model Action
+gameLayout :: Model -> View ctx Model Action
 gameLayout m =
     H.div_
         [P.class_ "layout"]
@@ -240,7 +240,7 @@ gameLayout m =
         , rightPanel m
         ]
 
-pitSvg :: Model -> View Model Action
+pitSvg :: Model -> View ctx Model Action
 pitSvg m =
     S.svg_
         [ P.width_ "560"
@@ -260,7 +260,7 @@ pitSvg m =
   where
     s = _setup m
 
-leftPanel :: Model -> View Model Action
+leftPanel :: Model -> View ctx Model Action
 leftPanel m =
     H.div_
         [P.class_ "panel"]
@@ -280,7 +280,7 @@ leftPanel m =
         | any (\(_, _, cz) -> cz == z) (_well m) = faceColor (setupD (_setup m)) z
         | otherwise = "#101010"
 
-rightPanel :: Model -> View Model Action
+rightPanel :: Model -> View ctx Model Action
 rightPanel m =
     H.div_
         [P.class_ "panel wide"]
@@ -298,7 +298,7 @@ pitCaption :: Setup -> MisoString
 pitCaption s =
     ms (setupW s) <> "\x00D7" <> ms (setupL s) <> "\x00D7" <> ms (setupD s)
 
-infoBox :: MisoString -> MisoString -> View Model Action
+infoBox :: MisoString -> MisoString -> View ctx Model Action
 infoBox label val =
     H.div_
         [P.class_ "infobox"]
@@ -342,7 +342,7 @@ pointsOf ps = ms (unwords [pt p | p <- ps])
   where
     pt (a, b) = fromMisoString (msd a) <> "," <> fromMisoString (msd b)
 
-poly :: MisoString -> MisoString -> MisoString -> [(Double, Double)] -> View Model Action
+poly :: MisoString -> MisoString -> MisoString -> [(Double, Double)] -> View ctx Model Action
 poly fillCol strokeCol w ps =
     S.polygon_
         [ SP.points_ (pointsOf ps)
@@ -351,7 +351,7 @@ poly fillCol strokeCol w ps =
         , SP.strokeWidth_ w
         ]
 
-lineSeg :: MisoString -> MisoString -> (Double, Double) -> (Double, Double) -> View Model Action
+lineSeg :: MisoString -> MisoString -> (Double, Double) -> (Double, Double) -> View ctx Model Action
 lineSeg strokeCol w (ax, ay) (bx, by) =
     S.line_
         [ SP.x1_ (msd ax)
@@ -366,7 +366,7 @@ gridColor :: MisoString
 gridColor = "#00b400"
 
 -- | The green wireframe of the empty pit.
-pitGrid :: Setup -> [View Model Action]
+pitGrid :: Setup -> [View ctx Model Action]
 pitGrid s =
     concat
         [ [poly "none" gridColor "1" (ring (fi z)) | z <- [0 .. d]]
@@ -412,7 +412,7 @@ sideColor d z = snd (palette !! paletteIx d z)
 plus any side faces that look toward the viewer and are not hidden by a
 neighbouring cube in the same layer.
 -}
-wellCubes :: Setup -> [Cell] -> [View Model Action]
+wellCubes :: Setup -> [Cell] -> [View ctx Model Action]
 wellCubes s w = concat [layerViews z | z <- [setupD s - 1, setupD s - 2 .. 0]]
   where
     cx = fi (setupW s) / 2
@@ -455,7 +455,7 @@ back by the not-yet-elapsed part of the 90 degree turn about the piece
 centroid (and translated back along any wall-kick offset), so the
 wireframe sweeps smoothly into its final resting orientation.
 -}
-pieceWire :: Setup -> Maybe Spin -> [Cell] -> [View Model Action]
+pieceWire :: Setup -> Maybe Spin -> [Cell] -> [View ctx Model Action]
 pieceWire s msp cs =
     [lineSeg "#ffffff" "1.5" (corner a) (corner b) | (a, b) <- outlineEdges cs]
   where
@@ -511,7 +511,7 @@ outlineEdges cs =
         2 -> (a && d) || (b && c)
         _ -> False
 
-overlay :: Bool -> Status -> [View Model Action]
+overlay :: Bool -> Status -> [View ctx Model Action]
 overlay isPractice = \case
     Playing -> []
     Paused ->

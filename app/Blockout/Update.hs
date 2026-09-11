@@ -45,8 +45,8 @@ keyDecoder = D.at [] $ withObject "event" $ \o ->
         <*> (o .:? "key" .!= "")
 
 -- | 100ms heartbeat driving gravity and the post-drop slide window.
-gravitySub :: Sub Action
-gravitySub sink = forever (threadDelay 100000 >> sink Tick)
+gravitySub :: Sub Model Action
+gravitySub sink _ = forever (threadDelay 100000 >> sink Tick)
 
 {- | Drives the rotation animation off the browser's @requestAnimationFrame@
 loop, throttled to 'spinIntervalMs'. Each tick advances the spin by a fixed
@@ -58,7 +58,7 @@ so tearing the subscription down mid-game frees a callback that the browser
 has already queued, which crashes the app. Left always-on, it only touches
 the model when a tick fires and 'SpinTick' no-ops while no spin is in flight.
 -}
-spinSub :: Sub Action
+spinSub :: Sub Model Action
 spinSub = rAFSubElapsed spinIntervalMs SpinTick
 
 {- | Animation-frame tick interval for the rotation animation, in
