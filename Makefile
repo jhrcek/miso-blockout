@@ -1,4 +1,4 @@
-.PHONY= update build optim format
+.PHONY: update build optim format
 
 all: update build optim
 

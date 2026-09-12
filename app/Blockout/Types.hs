@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Model, scenes, actions and the game's derived parameters.
 module Blockout.Types where
@@ -7,7 +8,7 @@ module Blockout.Types where
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import Miso (MisoString)
-import Miso.Lens
+import Miso.Lens.TH (makeLenses)
 
 -----------------------------------------------------------------------------
 -- Setup: the configurable game parameters of the original
@@ -17,6 +18,33 @@ import Miso.Lens
 from the viewer (deeper into the pit).
 -}
 type Cell = (Int, Int, Int)
+
+-- | The three axes of the pit, in the order of the 'Cell' components.
+data Axis = X | Y | Z
+    deriving (Eq, Show)
+
+-- | The two ways to make a 90 degree turn about an axis.
+data Turn = CW | CCW
+    deriving (Eq, Show)
+
+-- | The sign of a turn, as used by the rotation animation.
+turnSign :: Turn -> Double
+turnSign = \case
+    CW -> 1
+    CCW -> -1
+
+{- | The minimum and maximum corner of the bounding box of a non-empty set
+of cells: every cell lies between the two, inclusive.
+-}
+bounds :: [Cell] -> (Cell, Cell)
+bounds cs =
+    ( (minimum xs, minimum ys, minimum zs)
+    , (maximum xs, maximum ys, maximum zs)
+    )
+  where
+    xs = [x | (x, _, _) <- cs]
+    ys = [y | (_, y, _) <- cs]
+    zs = [z | (_, _, z) <- cs]
 
 data BlockSet = Flat | Basic | Extended
     deriving (Bounded, Enum, Eq, Show)
@@ -66,6 +94,16 @@ predefined =
 
 defaultSetup :: Setup
 defaultSetup = snd (NE.head predefined)
+
+-- | Position of a setup in 'predefined', if it is one of them.
+predefIndex :: Setup -> Maybe Int
+predefIndex s = case [i | (i, (_, p)) <- zip [0 ..] (NE.toList predefined), p == s] of
+    (i : _) -> Just i
+    [] -> Nothing
+
+-- | The name of a predefined setup, or "CUSTOM" for anything else.
+predefName :: Setup -> MisoString
+predefName s = maybe "CUSTOM" (fst . (predefined NE.!!)) (predefIndex s)
 
 pitVolume :: Setup -> Int
 pitVolume s = setupW s * setupL s * setupD s
@@ -122,14 +160,35 @@ data MenuItem = MenuStart | MenuSetup | MenuWrite | MenuPractice | MenuHelp
 data FameItem = FameStart | FameSetup | FameMenu
     deriving (Bounded, Enum, Eq, Show)
 
+-- | The rows of the setup menu: six values to edit, then three buttons.
+data SetupRow
+    = PredefRow
+    | BlockSetRow
+    | SpeedRow
+    | WidthRow
+    | LengthRow
+    | DepthRow
+    | StartRow
+    | WriteRow
+    | MenuRow
+    deriving (Bounded, Enum, Eq, Show)
+
 data SetupButton = StartB | WriteB | MenuB
     deriving (Eq, Show)
+
+-- | The button a setup-menu row stands for, for the three rows that are one.
+rowButton :: SetupRow -> Maybe SetupButton
+rowButton = \case
+    StartRow -> Just StartB
+    WriteRow -> Just WriteB
+    MenuRow -> Just MenuB
+    _ -> Nothing
 
 data Scene
     = -- | main menu with the highlighted item
       MenuScene MenuItem
-    | -- | focused row index and the draft setup being edited
-      SetupScene Int Setup
+    | -- | focused row and the draft setup being edited
+      SetupScene SetupRow Setup
     | -- | pick the starting level, 0..9
       LevelScene Int
     | HelpScene
@@ -140,21 +199,21 @@ data Scene
       FameScene FameItem
     deriving (Eq, Show)
 
-{- | Cycle the value of a setup-menu row. Rows: 0 predefined setup,
-1 block set, 2 rotation speed, 3 width, 4 length, 5 depth.
+{- | Cycle the value of a setup-menu row one step in the given direction
+(+1 or -1). The button rows hold no value and are left alone.
 -}
-adjustRow :: Int -> Int -> Setup -> Setup
+adjustRow :: SetupRow -> Int -> Setup -> Setup
 adjustRow row dir s = case row of
-    0 ->
+    PredefRow ->
         let ps = NE.map snd predefined
-         in case [i | (i, p) <- zip [0 ..] (NE.toList ps), p == s] of
-                (i : _) -> ps NE.!! ((i + dir) `mod` length ps)
-                [] -> if dir >= 0 then NE.head ps else NE.last ps
-    1 -> s{setupSet = cycleEnum dir (setupSet s)}
-    2 -> s{setupSpeed = cycleEnum dir (setupSpeed s)}
-    3 -> s{setupW = wrapRange widthRange (setupW s + dir)}
-    4 -> s{setupL = wrapRange lengthRange (setupL s + dir)}
-    5 -> s{setupD = wrapRange depthRange (setupD s + dir)}
+         in case predefIndex s of
+                Just i -> ps NE.!! ((i + dir) `mod` length ps)
+                Nothing -> if dir >= 0 then NE.head ps else NE.last ps
+    BlockSetRow -> s{setupSet = cycleEnum dir (setupSet s)}
+    SpeedRow -> s{setupSpeed = cycleEnum dir (setupSpeed s)}
+    WidthRow -> s{setupW = wrapRange widthRange (setupW s + dir)}
+    LengthRow -> s{setupL = wrapRange lengthRange (setupL s + dir)}
+    DepthRow -> s{setupD = wrapRange depthRange (setupD s + dir)}
     _ -> s
 
 -----------------------------------------------------------------------------
@@ -169,10 +228,8 @@ always hold the final orientation; rendering applies the remaining part
 of the inverse rotation, which shrinks to nothing as progress reaches 1.
 -}
 data Spin = Spin
-    { spinAxis :: Int
-    -- ^ 0 = X, 1 = Y, 2 = Z
-    , spinDir :: Double
-    -- ^ +1 or -1, the sign of the 90 degree turn
+    { spinAxis :: Axis
+    , spinTurn :: Turn
     , spinOff :: (Double, Double, Double)
     -- ^ old centroid minus new centroid (wall kicks shift the piece)
     , spinT :: Double
@@ -228,47 +285,7 @@ initialModel =
         , _ticks = 0
         }
 
-scene :: Lens Model Scene
-scene = lens _scene (\r f -> r{_scene = f})
-
-setup :: Lens Model Setup
-setup = lens _setup (\r f -> r{_setup = f})
-
-startLevel :: Lens Model Int
-startLevel = lens _startLevel (\r f -> r{_startLevel = f})
-
-practice :: Lens Model Bool
-practice = lens _practice (\r f -> r{_practice = f})
-
-well :: Lens Model [Cell]
-well = lens _well (\r f -> r{_well = f})
-
-piece :: Lens Model [Cell]
-piece = lens _piece (\r f -> r{_piece = f})
-
-spin :: Lens Model (Maybe Spin)
-spin = lens _spin (\r f -> r{_spin = f})
-
-pendingLock :: Lens Model Bool
-pendingLock = lens _pendingLock (\r f -> r{_pendingLock = f})
-
-score :: Lens Model Int
-score = lens _score (\r f -> r{_score = f})
-
-fame :: Lens Model [(MisoString, Int)]
-fame = lens _fame (\r f -> r{_fame = f})
-
-cubes :: Lens Model Int
-cubes = lens _cubes (\r f -> r{_cubes = f})
-
-cleared :: Lens Model Int
-cleared = lens _cleared (\r f -> r{_cleared = f})
-
-status :: Lens Model Status
-status = lens _status (\r f -> r{_status = f})
-
-ticks :: Lens Model Int
-ticks = lens _ticks (\r f -> r{_ticks = f})
+makeLenses ''Model
 
 -----------------------------------------------------------------------------
 -- Derived game parameters
@@ -332,16 +349,24 @@ data Action
     | Tick
     | -- | throttled requestAnimationFrame tick advancing the rotation animation
       SpinTick
-    | KeyDown (Int, Bool, MisoString)
+    | -- | keyCode, auto-repeat flag and key string of a keydown event
+      KeyDown (Int, Bool, MisoString)
     | NewPiece Int
     | -- | mouse: activate a main menu item
       Activate MenuItem
     | -- | mouse: pick a starting level and begin
       PickLevel Int
     | -- | mouse: focus a setup row and replace the draft
-      SetupClick Int Setup
+      SetupClick SetupRow Setup
     | -- | mouse: a setup-menu button, with the current draft
       SetupCommit SetupButton Setup
     | -- | mouse: activate a hall-of-fame menu item
       FameActivate FameItem
     deriving (Eq, Show)
+
+{- | A key press as a mouse action, for on-screen buttons that stand in for
+a key. Routing them through the keyboard handler keeps touch and keyboard
+controls on a single code path, so the two cannot drift apart.
+-}
+pressKey :: Int -> Action
+pressKey code = KeyDown (code, False, "")

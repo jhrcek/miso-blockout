@@ -23,6 +23,7 @@ import Miso.JSON (withObject, (.!=), (.:), (.:?))
 import Miso.Lens
 import Miso.Random (replicateRM)
 
+import Blockout.Key
 import Blockout.Persist
 import Blockout.Pieces
 import Blockout.Types
@@ -107,9 +108,7 @@ updateModel = \case
                 piece .= []
                 status .= Over
     Activate item -> runMenu item
-    PickLevel n -> do
-        startLevel .= n
-        startGame False
+    PickLevel n -> pickLevel n
     SetupClick i draft -> scene .= SetupScene i draft
     SetupCommit b draft -> setupButton b draft
     FameActivate item -> runFame item
@@ -145,6 +144,16 @@ startGame practiceMode = do
 gotoMenu :: Effect parent props Model Action
 gotoMenu = scene .= MenuScene MenuStart
 
+gotoSetup :: Effect parent props Model Action
+gotoSetup = do
+    s <- use setup
+    scene .= SetupScene PredefRow s
+
+pickLevel :: Int -> Effect parent props Model Action
+pickLevel n = do
+    startLevel .= n
+    startGame False
+
 abortToMenu :: Effect parent props Model Action
 abortToMenu = resetGame >> gotoMenu
 
@@ -153,9 +162,7 @@ runMenu = \case
     MenuStart -> do
         n <- use startLevel
         scene .= LevelScene n
-    MenuSetup -> do
-        s <- use setup
-        scene .= SetupScene 0 s
+    MenuSetup -> gotoSetup
     MenuWrite -> do
         s <- use setup
         io_ (setLocalStorage setupKey (encodeSetup s))
@@ -165,10 +172,7 @@ runMenu = \case
 runFame :: FameItem -> Effect parent props Model Action
 runFame = \case
     FameStart -> startGame False
-    FameSetup -> do
-        resetGame
-        s <- use setup
-        scene .= SetupScene 0 s
+    FameSetup -> resetGame >> gotoSetup
     FameMenu -> abortToMenu
 
 setupButton :: SetupButton -> Setup -> Effect parent props Model Action
@@ -220,7 +224,7 @@ handleKey code key = do
         -- F goes truly fullscreen from anywhere else (exit with the browser's
         -- native Esc). Requesting fullscreen needs a user gesture, which this
         -- keydown provides.
-        _ | code == 70 -> io_ requestFullscreen
+        _ | code == KeyF -> io_ requestFullscreen
         MenuScene item -> menuKey item code
         SetupScene i draft -> setupSceneKey i draft code
         LevelScene n -> levelKey n code
@@ -229,63 +233,55 @@ handleKey code key = do
 
 menuKey :: MenuItem -> Int -> Effect parent props Model Action
 menuKey item = \case
-    38 -> scene .= MenuScene (cycleEnum (-1) item)
-    40 -> scene .= MenuScene (cycleEnum 1 item)
-    13 -> runMenu item
+    ArrowUp -> scene .= MenuScene (cycleEnum (-1) item)
+    ArrowDown -> scene .= MenuScene (cycleEnum 1 item)
+    KeyEnter -> runMenu item
     -- first-letter shortcuts, as in the original menus
-    83 -> runMenu MenuStart -- S
-    67 -> runMenu MenuSetup -- C
-    87 -> runMenu MenuWrite -- W
-    80 -> runMenu MenuPractice -- P
-    72 -> runMenu MenuHelp -- H
+    KeyS -> runMenu MenuStart
+    KeyC -> runMenu MenuSetup
+    KeyW -> runMenu MenuWrite
+    KeyP -> runMenu MenuPractice
+    KeyH -> runMenu MenuHelp
     _ -> pure ()
 
 levelKey :: Int -> Int -> Effect parent props Model Action
-levelKey n code
-    | code >= 48 && code <= 57 = pick (code - 48)
-    | code >= 96 && code <= 105 = pick (code - 96)
-    | otherwise = case code of
-        (37; 38) -> move (-1)
-        (39; 40) -> move 1
-        13 -> pick n
-        27 -> scene .= MenuScene MenuStart
-        _ -> pure ()
+levelKey n code = case code of
+    (ArrowLeft; ArrowUp) -> move (-1)
+    (ArrowRight; ArrowDown) -> move 1
+    KeyEnter -> pickLevel n
+    KeyEsc -> gotoMenu
+    _ -> for_ (digitValue code) pickLevel
   where
     move d = scene .= LevelScene ((n + d) `mod` 10)
-    pick lvl = do
-        startLevel .= lvl
-        startGame False
 
--- | Rows 0-5 are setup values, 6-8 the Start/Write/Menu buttons.
-setupSceneKey :: Int -> Setup -> Int -> Effect parent props Model Action
-setupSceneKey i draft = \case
-    38 -> scene .= SetupScene ((i - 1) `mod` 9) draft
-    40 -> scene .= SetupScene ((i + 1) `mod` 9) draft
-    37 -> change (-1)
-    39 -> change 1
-    13
-        | i <= 5 -> change 1
-        | otherwise ->
-            setupButton (case i of 6 -> StartB; 7 -> WriteB; _ -> MenuB) draft
-    27 -> scene .= MenuScene MenuSetup -- cancel, discarding the draft
+setupSceneKey :: SetupRow -> Setup -> Int -> Effect parent props Model Action
+setupSceneKey row draft = \case
+    ArrowUp -> scene .= SetupScene (cycleEnum (-1) row) draft
+    ArrowDown -> scene .= SetupScene (cycleEnum 1 row) draft
+    ArrowLeft -> change (-1)
+    ArrowRight -> change 1
+    KeyEnter -> case rowButton row of
+        Just b -> setupButton b draft
+        Nothing -> change 1
+    KeyEsc -> scene .= MenuScene MenuSetup -- cancel, discarding the draft
     _ -> pure ()
   where
-    change d = when (i <= 5) (scene .= SetupScene i (adjustRow i d draft))
+    change d = scene .= SetupScene row (adjustRow row d draft)
 
 fameSceneKey :: FameItem -> Int -> Effect parent props Model Action
 fameSceneKey item = \case
-    38 -> scene .= FameScene (cycleEnum (-1) item)
-    40 -> scene .= FameScene (cycleEnum 1 item)
-    13 -> runFame item
-    83 -> runFame FameStart -- S
-    67 -> runFame FameSetup -- C
-    77 -> runFame FameMenu -- M
-    27 -> abortToMenu
+    ArrowUp -> scene .= FameScene (cycleEnum (-1) item)
+    ArrowDown -> scene .= FameScene (cycleEnum 1 item)
+    KeyEnter -> runFame item
+    KeyS -> runFame FameStart
+    KeyC -> runFame FameSetup
+    KeyM -> runFame FameMenu
+    KeyEsc -> abortToMenu
     _ -> pure ()
 
 nameKey :: MisoString -> Int -> MisoString -> Effect parent props Model Action
 nameKey name code key = case code of
-    13 -> do
+    KeyEnter -> do
         m <- use this
         let entries =
                 take famePlaces $
@@ -293,8 +289,8 @@ nameKey name code key = case code of
         fame .= entries
         io_ (setLocalStorage (fameKey (_setup m)) (encodeFame entries))
         scene .= FameScene FameStart
-    27 -> scene .= FameScene FameStart
-    8 -> scene .= NameScene (ms (dropLast (fromMisoString name)))
+    KeyEsc -> scene .= FameScene FameStart
+    KeyBackspace -> scene .= NameScene (ms (dropLast (fromMisoString name)))
     _ -> case fromMisoString key of
         [c]
             | isPrint c && length (fromMisoString name :: String) < maxNameLen ->
@@ -307,36 +303,36 @@ gameKey :: Model -> Int -> Effect parent props Model Action
 gameKey m code = case _status m of
     Over -> case code of
         -- practice mode has no hall of fame; only Esc, back to the menu
-        13 | not (_practice m) -> finishGame
-        27 -> abortToMenu
+        KeyEnter | not (_practice m) -> finishGame
+        KeyEsc -> abortToMenu
         _ -> pure ()
     Paused -> case code of
-        80 -> status .= Playing
-        27 -> abortToMenu
+        KeyP -> status .= Playing
+        KeyEsc -> abortToMenu
         _ -> pure ()
     Playing -> case code of
         -- move: arrows, numpad 4/6/8/2 (NumLock on) and the digit row
-        (37; 100; 52) -> tryMove (-1) 0
-        (39; 102; 54) -> tryMove 1 0
-        (38; 104; 56) -> tryMove 0 (-1)
-        (40; 98; 50) -> tryMove 0 1
+        (ArrowLeft; Numpad 4; Digit 4) -> tryMove (-1) 0
+        (ArrowRight; Numpad 6; Digit 6) -> tryMove 1 0
+        (ArrowUp; Numpad 8; Digit 8) -> tryMove 0 (-1)
+        (ArrowDown; Numpad 2; Digit 2) -> tryMove 0 1
         -- diagonals: numpad 7/9/1/3, Home/PgUp/End/PgDn and the digit row
-        (103; 36; 55) -> tryMove (-1) (-1)
-        (105; 33; 57) -> tryMove 1 (-1)
-        (97; 35; 49) -> tryMove (-1) 1
-        (99; 34; 51) -> tryMove 1 1
-        32 -> hardDrop
+        (Numpad 7; KeyHome; Digit 7) -> tryMove (-1) (-1)
+        (Numpad 9; KeyPgUp; Digit 9) -> tryMove 1 (-1)
+        (Numpad 1; KeyEnd; Digit 1) -> tryMove (-1) 1
+        (Numpad 3; KeyPgDn; Digit 3) -> tryMove 1 1
+        KeySpace -> hardDrop
         -- Q/W/E counter-clockwise, A/S/D clockwise about X/Y/Z (manual p.9);
         -- the Q/A and W/S pairs are flipped here so the on-screen turn
         -- matches the original game
-        81 -> tryRotate 0 1 rotXcw
-        65 -> tryRotate 0 (-1) rotXccw
-        87 -> tryRotate 1 1 rotYcw
-        83 -> tryRotate 1 (-1) rotYccw
-        69 -> tryRotate 2 (-1) rotZccw
-        68 -> tryRotate 2 1 rotZcw
-        80 -> status .= Paused
-        27 -> abortToMenu
+        KeyQ -> tryRotate X CW
+        KeyA -> tryRotate X CCW
+        KeyW -> tryRotate Y CW
+        KeyS -> tryRotate Y CCW
+        KeyE -> tryRotate Z CCW
+        KeyD -> tryRotate Z CW
+        KeyP -> status .= Paused
+        KeyEsc -> abortToMenu
         _ -> pure ()
 
 -----------------------------------------------------------------------------
@@ -347,12 +343,9 @@ fits :: Setup -> [Cell] -> [Cell] -> Bool
 fits s w = all ok
   where
     ok c@(x, y, z) =
-        x >= 0
-            && x < setupW s
-            && y >= 0
-            && y < setupL s
-            && z >= 0
-            && z < setupD s
+        inRange (0, setupW s - 1) x
+            && inRange (0, setupL s - 1) y
+            && inRange (0, setupD s - 1) z
             && c `notElem` w
 
 spawnPiece :: Effect parent props Model Action
@@ -369,27 +362,23 @@ gameTick = do
     m <- use this
     when (inPlay m) $
         if _pendingLock m
-            then do
-                -- the post-drop slide window (manual p.10 note)
-                let t = _ticks m + 1
-                if t >= lockTicks
-                    then do
-                        ticks .= 0
-                        slamLock
-                    else ticks .= t
-            else unless (_practice m) $ do
-                -- practice mode: blocks do not descend automatically
-                let t = _ticks m + 1
-                if t >= dropTicks (level m)
-                    then do
-                        ticks .= 0
-                        stepDown
-                    else ticks .= t
+            then -- the post-drop slide window (manual p.10 note)
+                everyTicks lockTicks slamLock
+            else -- practice mode: blocks do not descend automatically
+                unless (_practice m) (everyTicks (dropTicks (level m)) stepDown)
   where
     inPlay m =
         _scene m == GameScene
             && _status m == Playing
             && not (null (_piece m))
+
+-- | Count a tick, and run the action (resetting the count) every @n@ ticks.
+everyTicks :: Int -> Effect parent props Model Action -> Effect parent props Model Action
+everyTicks n act = do
+    t <- (+ 1) <$> use ticks
+    if t >= n
+        then ticks .= 0 >> act
+        else ticks .= t
 
 tryMove :: Int -> Int -> Effect parent props Model Action
 tryMove dx dy = do
@@ -425,9 +414,7 @@ hardDrop = do
     m <- use this
     unless (null (_piece m)) $
         if _pendingLock m
-            then do
-                ticks .= 0
-                slamLock
+            then slamLock
             else do
                 let dist = maxDescent m
                 piece .= down dist (_piece m)
@@ -481,15 +468,19 @@ lockPiece = do
 -- Rotation. Pieces rotate about the center of their bounding box, with a
 -- few "kick" offsets tried so rotation works next to walls.
 -----------------------------------------------------------------------------
-type Dims = (Int, Int, Int)
 
-rotXcw, rotXccw, rotYcw, rotYccw, rotZcw, rotZccw :: Dims -> Cell -> Cell
-rotXcw (_, _, sz) (x, y, z) = (x, sz - 1 - z, y)
-rotXccw (_, sy, _) (x, y, z) = (x, z, sy - 1 - y)
-rotYcw (_, _, sz) (x, y, z) = (sz - 1 - z, y, x)
-rotYccw (sx, _, _) (x, y, z) = (z, y, sx - 1 - x)
-rotZcw (_, sy, _) (x, y, z) = (sy - 1 - y, x, z)
-rotZccw (sx, _, _) (x, y, z) = (y, sx - 1 - x, z)
+{- | Turn a cell of a shape by 90 degrees within the shape's bounding box,
+given the box's size along each axis. The result stays within a box of the
+same size with its corner at the origin, just with two sides swapped.
+-}
+rotateCell :: Axis -> Turn -> (Int, Int, Int) -> Cell -> Cell
+rotateCell axis turn (sx, sy, sz) (x, y, z) = case (axis, turn) of
+    (X, CW) -> (x, sz - 1 - z, y)
+    (X, CCW) -> (x, z, sy - 1 - y)
+    (Y, CW) -> (sz - 1 - z, y, x)
+    (Y, CCW) -> (z, y, sx - 1 - x)
+    (Z, CW) -> (sy - 1 - y, x, z)
+    (Z, CCW) -> (y, sx - 1 - x, z)
 
 {- | Round @n@/2 to the nearest integer, breaking ties away from zero.
 Recentering a rotated piece with this (rather than 'div', which floors)
@@ -500,8 +491,7 @@ its starting cells instead of drifting sideways.
 roundHalf :: Int -> Int
 roundHalf n = signum n * ((abs n + 1) `div` 2)
 
-{- | Attempt a rotation. @axis@ (0 = X, 1 = Y, 2 = Z) and @dir@ describe
-the same turn as the discrete @rot@ function and are used to animate it.
+{- | Attempt a rotation of the falling piece, and animate it if it succeeds.
 
 The piece turns about the centre of its bounding box. If it does not fit
 in place it is nudged back inside the pit: sideways off a wall, or
@@ -511,21 +501,16 @@ of one rotation key climb the piece back up against gravity. Away from the
 walls the in-place rotation always fits, so repeating any rotation key
 cycles the piece through its orientations and back to its starting cells.
 -}
-tryRotate :: Int -> Double -> (Dims -> Cell -> Cell) -> Effect parent props Model Action
-tryRotate axis dir rot = do
+tryRotate :: Axis -> Turn -> Effect parent props Model Action
+tryRotate axis turn = do
     m <- use this
     unless (null (_piece m)) $ do
         let cs = _piece m
-            mnx = minimum [x | (x, _, _) <- cs]
-            mny = minimum [y | (_, y, _) <- cs]
-            mnz = minimum [z | (_, _, z) <- cs]
-            sx = maximum [x | (x, _, _) <- cs] - mnx + 1
-            sy = maximum [y | (_, y, _) <- cs] - mny + 1
-            sz = maximum [z | (_, _, z) <- cs] - mnz + 1
-            rel' = [rot (sx, sy, sz) (x - mnx, y - mny, z - mnz) | (x, y, z) <- cs]
-            sx' = maximum [x | (x, _, _) <- rel'] + 1
-            sy' = maximum [y | (_, y, _) <- rel'] + 1
-            sz' = maximum [z | (_, _, z) <- rel'] + 1
+            ((mnx, mny, mnz), (mxx, mxy, mxz)) = bounds cs
+            (sx, sy, sz) = (mxx - mnx + 1, mxy - mny + 1, mxz - mnz + 1)
+            rel' = [rotateCell axis turn (sx, sy, sz) (x - mnx, y - mny, z - mnz) | (x, y, z) <- cs]
+            (_, (mxx', mxy', mxz')) = bounds rel'
+            (sx', sy', sz') = (mxx' + 1, mxy' + 1, mxz' + 1)
             ox = mnx + roundHalf (sx - sx')
             oy = mny + roundHalf (sy - sy')
             oz = mnz + roundHalf (sz - sz')
@@ -556,5 +541,5 @@ tryRotate axis dir rot = do
                 let (px, py, pz) = centroid cs
                     (gx, gy, gz) = centroid good
                 piece .= good
-                spin .= Just (Spin axis dir (px - gx, py - gy, pz - gz) 0)
+                spin .= Just (Spin axis turn (px - gx, py - gy, pz - gz) 0)
             [] -> pure ()

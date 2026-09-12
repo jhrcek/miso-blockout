@@ -8,7 +8,6 @@ module Blockout.View
     , sheet
     ) where
 
-import Data.Foldable (toList)
 import Data.List (nub)
 import Miso hiding (status, (!!))
 import Miso.CSS (StyleSheet)
@@ -19,6 +18,7 @@ import Miso.Html.Property as P
 import qualified Miso.Svg.Element as S
 import qualified Miso.Svg.Property as SP
 
+import Blockout.Key
 import Blockout.Types
 
 -----------------------------------------------------------------------------
@@ -142,13 +142,17 @@ levelView n =
             ]
         ]
 
-setupView :: Int -> Setup -> View ctx Model Action
-setupView i draft =
-    menuScreen "CHOOSE SETUP" (map valueRow [0 .. 5] ++ map buttonRow buttons)
+setupView :: SetupRow -> Setup -> View ctx Model Action
+setupView focused draft =
+    menuScreen "CHOOSE SETUP" (map row [minBound .. maxBound])
   where
+    row r = case rowButton r of
+        Just b -> selectable (focused == r) (SetupCommit b draft) (buttonLabel b)
+        Nothing -> valueRow r
+    -- clicking a value row cycles its value, like Enter does
     valueRow r =
         H.div_
-            [ P.class_ (selClass "srow" (i == r))
+            [ P.class_ (selClass "srow" (focused == r))
             , onClick (SetupClick r (adjustRow r 1 draft))
             ]
             [ H.span_ [P.class_ "slabel"] [text (rowLabel r)]
@@ -159,34 +163,27 @@ setupView i draft =
                 , H.span_ [P.class_ "arrow"] ["\x25BA"]
                 ]
             ]
-    rowLabel :: Int -> MisoString
+    rowLabel :: SetupRow -> MisoString
     rowLabel = \case
-        0 -> "PREDEFINED SETUP"
-        1 -> "BLOCK SET"
-        2 -> "ROTATION SPEED"
-        3 -> "PIT WIDTH"
-        4 -> "PIT LENGTH"
+        PredefRow -> "PREDEFINED SETUP"
+        BlockSetRow -> "BLOCK SET"
+        SpeedRow -> "ROTATION SPEED"
+        WidthRow -> "PIT WIDTH"
+        LengthRow -> "PIT LENGTH"
         _ -> "PIT DEPTH"
-    rowValue :: Int -> MisoString
+    rowValue :: SetupRow -> MisoString
     rowValue = \case
-        0 -> predefName draft
-        1 -> blockSetName (setupSet draft)
-        2 -> speedName (setupSpeed draft)
-        3 -> ms (setupW draft)
-        4 -> ms (setupL draft)
+        PredefRow -> predefName draft
+        BlockSetRow -> blockSetName (setupSet draft)
+        SpeedRow -> speedName (setupSpeed draft)
+        WidthRow -> ms (setupW draft)
+        LengthRow -> ms (setupL draft)
         _ -> ms (setupD draft)
-    buttons =
-        [ (6, StartB, "START GAME")
-        , (7, WriteB, "WRITE SETUP")
-        , (8, MenuB, "MAIN MENU")
-        ]
-    buttonRow (r, b, label) =
-        selectable (i == r) (SetupCommit b draft) label
-
-predefName :: Setup -> MisoString
-predefName s = case [name | (name, p) <- toList predefined, p == s] of
-    (name : _) -> name
-    [] -> "CUSTOM"
+    buttonLabel :: SetupButton -> MisoString
+    buttonLabel = \case
+        StartB -> "START GAME"
+        WriteB -> "WRITE SETUP"
+        MenuB -> "MAIN MENU"
 
 helpView :: View ctx Model Action
 helpView =
@@ -209,7 +206,7 @@ helpView =
                     ["Fill a layer with cubes to clear it. The game ends when the stack reaches the top of the pit."]
                , -- narrow screens have no keyboard to "press any key" on,
                  -- so offer a way back that a tap can reach
-                 selectable False (KeyDown (27, False, "")) "BACK"
+                 selectable False (pressKey KeyEsc) "BACK"
                ]
   where
     helpRow keys what =
@@ -229,8 +226,8 @@ nameView m name =
         , H.div_ [P.class_ "name-entry"] [text (name <> "\x2588")]
         , -- a keyboard is needed to type the name, but the way on and the
           -- way out have to be reachable by tapping too
-          selectable False (KeyDown (13, False, "")) "SAVE"
-        , selectable False (KeyDown (27, False, "")) "SKIP"
+          selectable False (pressKey KeyEnter) "SAVE"
+        , selectable False (pressKey KeyEsc) "SKIP"
         ]
 
 fameView :: Model -> FameItem -> View ctx Model Action
@@ -266,16 +263,14 @@ fameView m item =
         ]
             ++ replicate (famePlaces - length (_fame m)) ("\x2026", "")
 
+-- | "5×5×12 • FLAT SET"
 setupCaption :: Setup -> MisoString
-setupCaption s =
-    ms (setupW s)
-        <> "\x00D7"
-        <> ms (setupL s)
-        <> "\x00D7"
-        <> ms (setupD s)
-        <> " \x2022 "
-        <> blockSetName (setupSet s)
-        <> " SET"
+setupCaption s = pitCaption s <> " \x2022 " <> blockSetName (setupSet s) <> " SET"
+
+-- | "5×5×12"
+pitCaption :: Setup -> MisoString
+pitCaption s =
+    ms (setupW s) <> "\x00D7" <> ms (setupL s) <> "\x00D7" <> ms (setupD s)
 
 -----------------------------------------------------------------------------
 -- Game screen
@@ -380,17 +375,19 @@ rightPanel m =
             | _practice m -> [H.div_ [P.class_ "status practice"] ["PRACTICE"]]
             | otherwise -> []
 
-pitCaption :: Setup -> MisoString
-pitCaption s =
-    ms (setupW s) <> "\x00D7" <> ms (setupL s) <> "\x00D7" <> ms (setupD s)
-
-infoBox :: MisoString -> MisoString -> View ctx Model Action
-infoBox label val =
+{- | A cyan label over a yellow value; 'infoBox' in the side columns,
+@tnum@ in the narrow-screen status strip, sized by the stylesheet.
+-}
+labelled :: MisoString -> MisoString -> MisoString -> View ctx Model Action
+labelled cls label val =
     H.div_
-        [P.class_ "infobox"]
+        [P.class_ cls]
         [ H.div_ [P.class_ "label"] [text label]
         , H.div_ [P.class_ "value"] [text val]
         ]
+
+infoBox :: MisoString -> MisoString -> View ctx Model Action
+infoBox = labelled "infobox"
 
 -----------------------------------------------------------------------------
 -- Touch controls, for screens that are taller than they are wide
@@ -405,7 +402,7 @@ tapKey cls code =
     H.button_
         [ P.class_ cls
         , P.type_ "button"
-        , onClick (KeyDown (code, False, ""))
+        , onClick (pressKey code)
         ]
 
 {- | Compact status line above the pit on narrow screens, standing in for
@@ -429,12 +426,7 @@ touchStrip m =
                | _status m == Over
                ]
   where
-    tnum label val =
-        H.div_
-            [P.class_ "tnum"]
-            [ H.div_ [P.class_ "label"] [text label]
-            , H.div_ [P.class_ "value"] [text val]
-            ]
+    tnum = labelled "tnum"
 
 {- | The on-screen game pad below the pit on narrow screens: the six
 rotations on the left, laid out like the Q\/W\/E and A\/S\/D keys they
@@ -449,31 +441,31 @@ touchPad m =
             [P.class_ "tzones"]
             [ H.div_
                 [P.class_ "rotpad"]
-                [ rotBtn "X" cw 81 -- Q
-                , rotBtn "Y" cw 87 -- W
-                , rotBtn "Z" ccw 69 -- E
-                , rotBtn "X" ccw 65 -- A
-                , rotBtn "Y" ccw 83 -- S
-                , rotBtn "Z" cw 68 -- D
+                [ rotBtn "X" cw KeyQ
+                , rotBtn "Y" cw KeyW
+                , rotBtn "Z" ccw KeyE
+                , rotBtn "X" ccw KeyA
+                , rotBtn "Y" ccw KeyS
+                , rotBtn "Z" cw KeyD
                 ]
             , H.div_
                 [P.class_ "dpad"]
                 [ tgap
-                , tapKey "tbtn" 38 ["\x2191"]
+                , tapKey "tbtn" ArrowUp ["\x2191"]
                 , tgap
-                , tapKey "tbtn" 37 ["\x2190"]
+                , tapKey "tbtn" ArrowLeft ["\x2190"]
                 , tgap
-                , tapKey "tbtn" 39 ["\x2192"]
+                , tapKey "tbtn" ArrowRight ["\x2192"]
                 , tgap
-                , tapKey "tbtn" 40 ["\x2193"]
+                , tapKey "tbtn" ArrowDown ["\x2193"]
                 , tgap
                 ]
             ]
         , H.div_
             [P.class_ "tacts"]
             [ dropOrScores
-            , tapKey "tbtn wide" 80 ["PAUSE"]
-            , tapKey "tbtn wide" 27 ["MENU"]
+            , tapKey "tbtn wide" KeyP ["PAUSE"]
+            , tapKey "tbtn wide" KeyEsc ["MENU"]
             ]
         ]
   where
@@ -490,8 +482,8 @@ touchPad m =
     -- once the game is over there is nothing left to drop, so the slot
     -- offers the hall of fame instead -- what Enter does on a keyboard
     dropOrScores
-        | _status m == Over && not (_practice m) = tapKey "tbtn wide" 13 ["SCORES"]
-        | otherwise = tapKey "tbtn wide" 32 ["DROP"]
+        | _status m == Over && not (_practice m) = tapKey "tbtn wide" KeyEnter ["SCORES"]
+        | otherwise = tapKey "tbtn wide" KeySpace ["DROP"]
 
 -----------------------------------------------------------------------------
 -- Perspective projection into the pit
@@ -656,8 +648,8 @@ pieceWire s msp cs =
     corner (x, y, z) = let (px, py, pz) = place (fi x) (fi y) (fi z) in proj s px py pz
     place = case msp of
         Nothing -> (,,)
-        Just (Spin axis dir (ox, oy, oz) t) ->
-            let theta = -(dir * (pi / 2) * (1 - t))
+        Just (Spin axis turn (ox, oy, oz) t) ->
+            let theta = -(turnSign turn * (pi / 2) * (1 - t))
                 (cx0, cy0, cz0) = centroid cs
              in \x y z ->
                     let (rx, ry, rz) = rotate3 axis theta (x - cx0, y - cy0, z - cz0)
@@ -670,10 +662,10 @@ pieceWire s msp cs =
 +90 degrees this agrees with the linear part of the corresponding
 discrete cw rotation, at -90 degrees with the ccw one.
 -}
-rotate3 :: Int -> Double -> (Double, Double, Double) -> (Double, Double, Double)
-rotate3 0 th (x, y, z) = (x, y * cos th - z * sin th, y * sin th + z * cos th)
-rotate3 1 th (x, y, z) = (x * cos th - z * sin th, y, x * sin th + z * cos th)
-rotate3 _ th (x, y, z) = (x * cos th - y * sin th, x * sin th + y * cos th, z)
+rotate3 :: Axis -> Double -> (Double, Double, Double) -> (Double, Double, Double)
+rotate3 X th (x, y, z) = (x, y * cos th - z * sin th, y * sin th + z * cos th)
+rotate3 Y th (x, y, z) = (x * cos th - z * sin th, y, x * sin th + z * cos th)
+rotate3 Z th (x, y, z) = (x * cos th - y * sin th, x * sin th + y * cos th, z)
 
 {- | The crease edges of the union of the piece's unit cubes, in lattice
 corner coordinates. Each lattice edge touches up to four cells; it is

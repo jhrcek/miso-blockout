@@ -44,6 +44,7 @@ executable miso-blockout
   import:           options, warnings
   main-is:          Main.hs
   other-modules:
+    Blockout.Key
     Blockout.Persist
     Blockout.Pieces
     Blockout.Types

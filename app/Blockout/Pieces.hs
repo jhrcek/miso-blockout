@@ -95,12 +95,9 @@ canon = minimum . allOrientations
 
 -- | Translate the bounding box corner to the origin and sort the cells.
 normalize :: Proto -> Proto
-normalize cs =
-    sort [(x - mx, y - my, z - mz) | (x, y, z) <- cs]
+normalize cs = sort [(x - mx, y - my, z - mz) | (x, y, z) <- cs]
   where
-    mx = minimum [x | (x, _, _) <- cs]
-    my = minimum [y | (_, y, _) <- cs]
-    mz = minimum [z | (_, _, z) <- cs]
+    ((mx, my, mz), _) = bounds cs
 
 -- | A rotation matrix as the images of the three basis vectors.
 type Mat = (Cell, Cell, Cell)
@@ -129,12 +126,11 @@ rotations = Set.toList (go (Set.singleton identity))
                     [compose g m | m <- Set.toList s, g <- [rx, rz]]
     compose g (e1, e2, e3) = (applyM g e1, applyM g e2, applyM g e3)
 
+-- | Size of a shape's bounding box along each axis.
 extent :: Proto -> (Int, Int, Int)
-extent cs =
-    ( maximum [x | (x, _, _) <- cs] + 1
-    , maximum [y | (_, y, _) <- cs] + 1
-    , maximum [z | (_, _, z) <- cs] + 1
-    )
+extent cs = (mx - lx + 1, my - ly + 1, mz - lz + 1)
+  where
+    ((lx, ly, lz), (mx, my, mz)) = bounds cs
 
 {- | The pieces of the setup's block set that fit the pit, each in its
 flattest spawn orientation. Pieces too big for the pit are never
