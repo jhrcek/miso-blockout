@@ -190,6 +190,9 @@ helpView =
             ++ [ H.div_
                     [P.class_ "note"]
                     ["Fill a layer with cubes to clear it. The game ends when the stack reaches the top of the pit."]
+               , -- narrow screens have no keyboard to "press any key" on,
+                 -- so offer a way back that a tap can reach
+                 selectable False (KeyDown (27, False, "")) "BACK"
                ]
   where
     helpRow keys what =
@@ -207,6 +210,10 @@ nameView m name =
         , H.div_ [P.class_ "note"] [text ("YOUR SCORE: " <> ms (_score m))]
         , H.div_ [P.class_ "note"] ["ENTER YOUR NAME:"]
         , H.div_ [P.class_ "name-entry"] [text (name <> "\x2588")]
+        , -- a keyboard is needed to type the name, but the way on and the
+          -- way out have to be reachable by tapping too
+          selectable False (KeyDown (13, False, "")) "SAVE"
+        , selectable False (KeyDown (27, False, "")) "SKIP"
         ]
 
 fameView :: Model -> FameItem -> View ctx Model Action
@@ -261,9 +268,13 @@ gameLayout :: Model -> View ctx Model Action
 gameLayout m =
     H.div_
         [P.class_ "layout"]
+        -- the strip and the pad replace the two side panels on narrow
+        -- screens; the stylesheet shows one set or the other
         [ leftPanel m
         , pitSvg m
         , rightPanel m
+        , touchStrip m
+        , touchPad m
         ]
 
 pitSvg :: Model -> View ctx Model Action
@@ -297,24 +308,30 @@ pitSvg m =
             ]
             [text t]
 
-{- | Left column, as in the original: the level and the pit depth indicator,
-a strip that fills from the bottom with the colour of every layer that
-holds at least one cube.
--}
+-- | Left column, as in the original: the level and the pit depth indicator.
 leftPanel :: Model -> View ctx Model Action
 leftPanel m =
     H.div_
         [P.class_ "panel"]
         [ infoBox "LEVEL" (ms (level m))
-        , H.div_
-            [P.class_ "stack"]
-            [ H.div_
-                [ P.class_ (if filled z then "seg on" else "seg")
-                , CSS.style_ ["background-color" =: segColor z]
-                ]
-                []
-            | z <- [0 .. setupD (_setup m) - 1]
+        , depthStack m
+        ]
+
+{- | The pit depth indicator: one segment per layer, lit in the colour of
+every layer that holds at least one cube. It runs down the left column on
+wide screens and across the status strip on narrow ones, where the
+stylesheet lays the same markup out sideways.
+-}
+depthStack :: Model -> View ctx Model Action
+depthStack m =
+    H.div_
+        [P.class_ "stack"]
+        [ H.div_
+            [ P.class_ (if filled z then "seg on" else "seg")
+            , CSS.style_ ["background-color" =: segColor z]
             ]
+            []
+        | z <- [0 .. setupD (_setup m) - 1]
         ]
   where
     filled z = any (\(_, _, cz) -> cz == z) (_well m)
@@ -357,6 +374,107 @@ infoBox label val =
         [ H.div_ [P.class_ "label"] [text label]
         , H.div_ [P.class_ "value"] [text val]
         ]
+
+-----------------------------------------------------------------------------
+-- Touch controls, for screens that are taller than they are wide
+-----------------------------------------------------------------------------
+
+{- | A button that stands in for a key press: it hands the keyboard handler
+the code of the key it is labelled with, so touch and keyboard controls
+share a single code path and cannot drift apart.
+-}
+tapKey :: MisoString -> Int -> [View ctx Model Action] -> View ctx Model Action
+tapKey cls code =
+    H.button_
+        [ P.class_ cls
+        , P.type_ "button"
+        , onClick (KeyDown (code, False, ""))
+        ]
+
+{- | Compact status line above the pit on narrow screens, standing in for
+the two side columns: the numbers worth watching while playing, the depth
+indicator turned on its side, and the game-over notice that otherwise
+lives in the right column.
+-}
+touchStrip :: Model -> View ctx Model Action
+touchStrip m =
+    H.div_ [P.class_ "tstrip"] $
+        [ H.div_
+            [P.class_ "tnums"]
+            [ tnum "LEVEL" (ms (level m))
+            , tnum "SCORE" (ms (_score m))
+            , tnum "CUBES" (ms (_cubes m))
+            , tnum "HIGH" (ms (max (fameBest m) (_score m)))
+            ]
+        , depthStack m
+        ]
+            ++ [ H.div_ [P.class_ "status over"] ["GAME OVER"]
+               | _status m == Over
+               ]
+  where
+    tnum label val =
+        H.div_
+            [P.class_ "tnum"]
+            [ H.div_ [P.class_ "label"] [text label]
+            , H.div_ [P.class_ "value"] [text val]
+            ]
+
+{- | The on-screen game pad below the pit on narrow screens: the six
+rotations on the left, laid out like the Q\/W\/E and A\/S\/D keys they
+stand for so the left thumb reaches all of them, the four moves on the
+right, and the three commands along the bottom.
+-}
+touchPad :: Model -> View ctx Model Action
+touchPad m =
+    H.div_
+        [P.class_ "touch"]
+        [ H.div_
+            [P.class_ "tzones"]
+            [ H.div_
+                [P.class_ "rotpad"]
+                [ rotBtn "X" cw 81 -- Q
+                , rotBtn "Y" cw 87 -- W
+                , rotBtn "Z" ccw 69 -- E
+                , rotBtn "X" ccw 65 -- A
+                , rotBtn "Y" ccw 83 -- S
+                , rotBtn "Z" cw 68 -- D
+                ]
+            , H.div_
+                [P.class_ "dpad"]
+                [ tgap
+                , tapKey "tbtn" 38 ["\x2191"]
+                , tgap
+                , tapKey "tbtn" 37 ["\x2190"]
+                , tgap
+                , tapKey "tbtn" 39 ["\x2192"]
+                , tgap
+                , tapKey "tbtn" 40 ["\x2193"]
+                , tgap
+                ]
+            ]
+        , H.div_
+            [P.class_ "tacts"]
+            [ dropOrScores
+            , tapKey "tbtn wide" 80 ["PAUSE"]
+            , tapKey "tbtn wide" 27 ["MENU"]
+            ]
+        ]
+  where
+    cw = "\x21BB"
+    ccw = "\x21BA"
+    tgap = H.div_ [P.class_ "tgap"] []
+    rotBtn axis turn code =
+        tapKey
+            "tbtn"
+            code
+            [ H.span_ [P.class_ "taxis"] [text axis]
+            , H.span_ [P.class_ "tturn"] [text turn]
+            ]
+    -- once the game is over there is nothing left to drop, so the slot
+    -- offers the hall of fame instead -- what Enter does on a keyboard
+    dropOrScores
+        | _status m == Over && not (_practice m) = tapKey "tbtn wide" 13 ["SCORES"]
+        | otherwise = tapKey "tbtn wide" 32 ["DROP"]
 
 -----------------------------------------------------------------------------
 -- Perspective projection into the pit
@@ -789,6 +907,127 @@ sheet =
             , "white-space" =: "nowrap"
             , "overflow" =: "hidden"
             ]
+        , -- touch controls. Everything here is laid out ready to use but
+          -- kept out of the flow; 'narrowStyles' switches it on.
+          CSS.selector_ ".tstrip, .touch" [CSS.display "none"]
+        , CSS.selector_
+            ".tstrip"
+            [ "flex-direction" =: "column"
+            , "gap" =: "4px"
+            , "flex" =: "none"
+            ]
+        , CSS.selector_ ".tnums" [CSS.display "flex", "gap" =: "4px"]
+        , CSS.selector_
+            ".tnum"
+            ( boxFrame blue
+                ++ [ "flex" =: "1"
+                   , "min-width" =: "0"
+                   , CSS.display "flex"
+                   , "flex-direction" =: "column"
+                   , "align-items" =: "center"
+                   , CSS.padding "3px 2px 2px"
+                   ]
+            )
+        , CSS.selector_
+            ".tnum .label"
+            [ "color" =: cyan
+            , CSS.fontSize "9px"
+            , "line-height" =: "1"
+            , "letter-spacing" =: "1px"
+            ]
+        , CSS.selector_
+            ".tnum .value"
+            [ "color" =: yellow
+            , CSS.fontSize "15px"
+            , CSS.fontWeight "700"
+            , "line-height" =: "1.3"
+            , "white-space" =: "nowrap"
+            , "overflow" =: "hidden"
+            ]
+        , -- the depth indicator lies on its side here, deepest layer first
+          -- so that it fills from the left as the pit fills from the bottom
+          CSS.selector_
+            ".tstrip .stack"
+            [ "flex" =: "none"
+            , "flex-direction" =: "row-reverse"
+            , "height" =: "14px"
+            , "gap" =: "2px"
+            , CSS.padding (CSS.px 3)
+            , "box-sizing" =: "border-box"
+            ]
+        , CSS.selector_
+            ".tstrip .status"
+            [ CSS.fontSize "18px"
+            , CSS.padding "5px 10px 3px"
+            , "letter-spacing" =: "4px"
+            ]
+        , CSS.selector_
+            ".touch"
+            [ "flex-direction" =: "column"
+            , "gap" =: "8px"
+            , "flex" =: "none"
+            ]
+        , CSS.selector_ ".tzones" [CSS.display "flex", "gap" =: "12px"]
+        , -- six rotations laid out like the Q/W/E and A/S/D keys ...
+          CSS.selector_
+            ".rotpad"
+            [ CSS.display "grid"
+            , CSS.gridTemplateColumns "repeat(3, 1fr)"
+            , "gap" =: "6px"
+            , "flex" =: "1 1 0"
+            , "align-content" =: "center"
+            ]
+        , -- ... and the four moves as a cross, the corners left empty
+          CSS.selector_
+            ".dpad"
+            [ CSS.display "grid"
+            , CSS.gridTemplateColumns "repeat(3, 1fr)"
+            , "gap" =: "6px"
+            , "flex" =: "1 1 0"
+            ]
+        , CSS.selector_ ".tacts" [CSS.display "flex", "gap" =: "8px"]
+        , CSS.selector_
+            ".tbtn"
+            ( boxFrame brightBlue
+                ++ [ "color" =: white
+                   , CSS.fontFamily uiFont
+                   , CSS.fontWeight "700"
+                   , -- the pad has to leave the pit as much of a short
+                     -- screen as it can, so it is sized off the viewport
+                     -- height rather than fixed
+                     CSS.fontSize "clamp(16px, 2.6vh, 22px)"
+                   , "line-height" =: "1"
+                   , CSS.textAlign "center"
+                   , CSS.padding "clamp(5px, 1.4vh, 11px) 4px"
+                   , "cursor" =: "pointer"
+                   , CSS.display "flex"
+                   , "flex-direction" =: "column"
+                   , "align-items" =: "center"
+                   , "justify-content" =: "center"
+                   , CSS.userSelect "none"
+                   , CSS.appearance "none"
+                   , -- taps should feel instant: no double-tap zoom delay
+                     -- and none of the browser's own tap flash
+                     "touch-action" =: "manipulation"
+                   , "-webkit-tap-highlight-color" =: "transparent"
+                   ]
+            )
+        , CSS.selector_ ".tbtn:active" ["background-color" =: blue, "color" =: yellow]
+        , CSS.selector_
+            ".tbtn.wide"
+            [ "flex" =: "1"
+            , CSS.fontSize "clamp(12px, 1.8vh, 15px)"
+            , "letter-spacing" =: "2px"
+            , CSS.padding "clamp(6px, 1.6vh, 13px) 4px"
+            ]
+        , CSS.selector_
+            ".taxis"
+            [ "color" =: cyan
+            , CSS.fontSize "clamp(9px, 1.3vh, 11px)"
+            , "line-height" =: "1"
+            , "letter-spacing" =: "1px"
+            ]
+        , CSS.selector_ ".tturn" ["color" =: yellow, CSS.fontSize "clamp(17px, 2.9vh, 24px)", "line-height" =: "1.1"]
         , -- menu screens
           CSS.selector_
             ".menu"
@@ -962,7 +1201,91 @@ sheet =
             ".fscore"
             [ "color" =: yellow
             ]
+        , narrowStyles
         ]
   where
     px :: Int -> MisoString
     px n = ms n <> "px"
+
+{- | Narrow screens: anything taller than it is wide, which is how a phone
+is normally held. The fixed-size, scaled-to-fit landscape layout does not
+survive that aspect ratio, so the UI is rebuilt fluid instead: the pit
+takes the full width of the screen, the two side columns give way to the
+compact status strip above it, the keyboard hints (useless without a
+keyboard) go away and the on-screen game pad appears below the pit.
+-}
+narrowStyles :: CSS.Styles
+narrowStyles =
+    CSS.media_ (CSS.screen_ `CSS.and_` CSS.orientation_ "portrait") $
+        [ CSS.rule_
+            ".blockout"
+            [ "width" =: "100vw"
+            , "height" =: "100vh"
+            , -- fluid, so drop the scale-to-fit transform of the wide layout
+              "transform" =: "none"
+            , "gap" =: "4px"
+            ]
+        , -- no keyboard to hint at
+          CSS.rule_ ".controls" [CSS.display "none"]
+        , CSS.rule_
+            ".layout"
+            [ "flex-direction" =: "column"
+            , "flex" =: "1"
+            , "height" =: "auto"
+            , "min-height" =: "0"
+            , "gap" =: "6px"
+            ]
+        , -- superseded by .tstrip
+          CSS.rule_ ".panel" [CSS.display "none"]
+        , -- The pit is the one element that stretches: it claims the width
+          -- of the screen and whatever height the strip and the pad leave
+          -- over. The viewBox keeps the drawing square and centred inside
+          -- that box, so it can never come out distorted.
+          CSS.rule_
+            ".pit"
+            [ "flex" =: "1 1 0"
+            , "min-height" =: "0"
+            , "width" =: "100%"
+            , "height" =: "auto"
+            ]
+        , -- the strip is last in the markup but reads as a heading, so
+          -- lift it above the pit
+          CSS.rule_ ".tstrip" [CSS.display "flex", "order" =: "-1", CSS.padding "0 6px"]
+        , CSS.rule_
+            ".touch"
+            [ CSS.display "flex"
+            , CSS.padding "0 6px"
+            , -- clear of the home indicator on phones that have one
+              "padding-bottom" =: "calc(6px + env(safe-area-inset-bottom))"
+            ]
+        ]
+            ++ narrowMenuStyles
+
+{- | The menu screens on a narrow screen: they are a fixed 600px wide in
+the scaled layout, which no longer fits, so they go fluid and shed a few
+points of type. The rows also grow taller, to give a fingertip something
+to aim at.
+-}
+narrowMenuStyles :: [CSS.MediaRule]
+narrowMenuStyles =
+    [ CSS.rule_
+        ".menu"
+        [ "justify-content" =: "flex-start"
+        , "overflow-y" =: "auto"
+        , CSS.padding "10px 8px"
+        ]
+    , CSS.rule_ ".menuScreen" ["width" =: "100%", CSS.padding "12px 14px 16px"]
+    , CSS.rule_ ".menuScreen-title" [CSS.fontSize "18px", "letter-spacing" =: "2px"]
+    , CSS.rule_ ".logo.big" [CSS.padding "6px 24px", "margin-bottom" =: "8px"]
+    , CSS.rule_ ".logo.big .logo-block" [CSS.fontSize "30px"]
+    , CSS.rule_ ".logo.big .logo-out" [CSS.fontSize "22px", CSS.padding "0 10px 2px 8px"]
+    , CSS.rule_ ".mrow" [CSS.fontSize "18px", CSS.padding "13px 8px 11px", "letter-spacing" =: "1px"]
+    , CSS.rule_ ".srow" [CSS.fontSize "15px", CSS.padding "11px 6px 9px", "gap" =: "10px"]
+    , CSS.rule_ ".lvl" [CSS.fontSize "20px", CSS.padding "11px 0 9px", "width" =: "100%"]
+    , CSS.rule_ ".note" [CSS.fontSize "14px"]
+    , CSS.rule_ ".note.bright" [CSS.fontSize "18px"]
+    , CSS.rule_ ".name-entry" [CSS.fontSize "22px", "margin" =: "10px 0"]
+    , CSS.rule_ ".fame-table" ["column-gap" =: "12px", CSS.padding "8px 4px"]
+    , CSS.rule_ ".frow" [CSS.fontSize "14px", "gap" =: "8px"]
+    , CSS.rule_ ".frank" ["width" =: "26px"]
+    ]
