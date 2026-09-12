@@ -58,6 +58,8 @@ footerText m = case _scene m of
 
 {- | The BLOCK OUT logo of the original: two stacked lines of chunky
 slanted letters in a blue box. The "big" variant heads the menu screens.
+The credit sits under the logo, so it shows up on every screen that
+carries one -- all the menus and, in the right column, the game itself.
 -}
 logo :: Bool -> View ctx Model Action
 logo big =
@@ -65,6 +67,21 @@ logo big =
         [P.class_ (if big then "logo big" else "logo")]
         [ H.div_ [P.class_ "logo-block"] ["BLOCK"]
         , H.div_ [P.class_ "logo-out"] ["OUT"]
+        , credit
+        ]
+
+-- | Where the framework behind all this can be found.
+credit :: View ctx Model Action
+credit =
+    H.div_
+        [P.class_ "credit"]
+        [ "Built with "
+        , H.a_
+            [ P.href_ "https://haskell-miso.org/"
+            , P.target_ "_blank"
+            , P.rel_ "noopener noreferrer"
+            ]
+            ["miso"]
         ]
 
 -----------------------------------------------------------------------------
@@ -1119,6 +1136,22 @@ sheet =
             , CSS.textAlign "center"
             , CSS.padding "2px 0"
             ]
+        , -- inside the logo box, so it has to shed the slanted display face
+          CSS.selector_
+            ".credit"
+            [ "color" =: darkGrey
+            , CSS.fontFamily uiFont
+            , CSS.fontSize "11px"
+            , CSS.fontWeight "500"
+            , "font-style" =: "normal"
+            , "line-height" =: "1"
+            , "letter-spacing" =: "0"
+            , CSS.textAlign "center"
+            , "margin-top" =: "2px"
+            ]
+        , CSS.selector_ ".logo.big .credit" [CSS.fontSize "13px", "margin-top" =: "4px"]
+        , CSS.selector_ ".credit a" ["color" =: grey, "text-decoration" =: "underline"]
+        , CSS.selector_ ".credit a:hover" ["color" =: cyan]
         , CSS.selector_
             ".note.bright"
             [ "color" =: yellow
