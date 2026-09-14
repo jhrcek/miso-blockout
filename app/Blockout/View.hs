@@ -25,8 +25,8 @@ import Blockout.Types
 -- Scene dispatch
 -----------------------------------------------------------------------------
 
-viewModel :: ctx -> props -> Model -> View ctx Model Action
-viewModel _ _ m =
+viewModel :: Model -> View ctx props Model Action
+viewModel m =
     H.div_
         [P.class_ "blockout"]
         [ case _scene m of
@@ -61,7 +61,7 @@ slanted letters in a blue box. The "big" variant heads the menu screens.
 The credit sits under the logo, so it shows up on every screen that
 carries one -- all the menus and, in the right column, the game itself.
 -}
-logo :: Bool -> View ctx Model Action
+logo :: Bool -> View ctx props Model Action
 logo big =
     H.div_
         [P.class_ (if big then "logo big" else "logo")]
@@ -71,7 +71,7 @@ logo big =
         ]
 
 -- | Where the framework behind all this can be found.
-credit :: View ctx Model Action
+credit :: View ctx props Model Action
 credit =
     H.div_
         [P.class_ "credit"]
@@ -88,7 +88,7 @@ credit =
 -- Menu screens
 -----------------------------------------------------------------------------
 
-menuScreen :: MisoString -> [View ctx Model Action] -> View ctx Model Action
+menuScreen :: MisoString -> [View ctx props Model Action] -> View ctx props Model Action
 menuScreen heading contents =
     H.div_
         [P.class_ "menu"]
@@ -102,7 +102,7 @@ menuScreen heading contents =
 selClass :: MisoString -> Bool -> MisoString
 selClass base sel = if sel then base <> " sel" else base
 
-selectable :: Bool -> Action -> MisoString -> View ctx Model Action
+selectable :: Bool -> Action -> MisoString -> View ctx props Model Action
 selectable isSel act label =
     H.div_
         [ P.class_ (selClass "mrow" isSel)
@@ -113,7 +113,7 @@ selectable isSel act label =
         , H.span_ [P.class_ "marker"] [text (if isSel then "\x25C4" else "")]
         ]
 
-menuView :: MenuItem -> View ctx Model Action
+menuView :: MenuItem -> View ctx props Model Action
 menuView item =
     menuScreen
         "MAIN MENU"
@@ -127,7 +127,7 @@ menuView item =
             ]
         ]
 
-levelView :: Int -> View ctx Model Action
+levelView :: Int -> View ctx props Model Action
 levelView n =
     menuScreen
         "STARTING LEVEL"
@@ -142,7 +142,7 @@ levelView n =
             ]
         ]
 
-setupView :: SetupRow -> Setup -> View ctx Model Action
+setupView :: SetupRow -> Setup -> View ctx props Model Action
 setupView focused draft =
     menuScreen "CHOOSE SETUP" (map row [minBound .. maxBound])
   where
@@ -185,7 +185,7 @@ setupView focused draft =
         WriteB -> "WRITE SETUP"
         MenuB -> "MAIN MENU"
 
-helpView :: View ctx Model Action
+helpView :: View ctx props Model Action
 helpView =
     menuScreen "HELP" $
         [ helpRow keys what
@@ -216,7 +216,7 @@ helpView =
             , H.span_ [P.class_ "svalue"] [text what]
             ]
 
-nameView :: Model -> MisoString -> View ctx Model Action
+nameView :: Model -> MisoString -> View ctx props Model Action
 nameView m name =
     menuScreen
         "HALL OF FAME"
@@ -230,7 +230,7 @@ nameView m name =
         , selectable False (pressKey KeyEsc) "SKIP"
         ]
 
-fameView :: Model -> FameItem -> View ctx Model Action
+fameView :: Model -> FameItem -> View ctx props Model Action
 fameView m item =
     menuScreen "HALL OF FAME" $
         [ H.div_ [P.class_ "note"] [text (setupCaption (_setup m))]
@@ -276,7 +276,7 @@ pitCaption s =
 -- Game screen
 -----------------------------------------------------------------------------
 
-gameLayout :: Model -> View ctx Model Action
+gameLayout :: Model -> View ctx props Model Action
 gameLayout m =
     H.div_
         [P.class_ "layout"]
@@ -289,7 +289,7 @@ gameLayout m =
         , touchPad m
         ]
 
-pitSvg :: Model -> View ctx Model Action
+pitSvg :: Model -> View ctx props Model Action
 pitSvg m =
     S.svg_
         [ P.width_ (ms pitPx)
@@ -321,7 +321,7 @@ pitSvg m =
             [text t]
 
 -- | Left column, as in the original: the level and the pit depth indicator.
-leftPanel :: Model -> View ctx Model Action
+leftPanel :: Model -> View ctx props Model Action
 leftPanel m =
     H.div_
         [P.class_ "panel"]
@@ -334,7 +334,7 @@ every layer that holds at least one cube. It runs down the left column on
 wide screens and across the status strip on narrow ones, where the
 stylesheet lays the same markup out sideways.
 -}
-depthStack :: Model -> View ctx Model Action
+depthStack :: Model -> View ctx props Model Action
 depthStack m =
     H.div_
         [P.class_ "stack"]
@@ -355,7 +355,7 @@ depthStack m =
 played on top, high score, pit and block set at the bottom. The gap in
 between hosts the status box (practice / paused / game over).
 -}
-rightPanel :: Model -> View ctx Model Action
+rightPanel :: Model -> View ctx props Model Action
 rightPanel m =
     H.div_
         [P.class_ "panel wide"]
@@ -378,7 +378,7 @@ rightPanel m =
 {- | A cyan label over a yellow value; 'infoBox' in the side columns,
 @tnum@ in the narrow-screen status strip, sized by the stylesheet.
 -}
-labelled :: MisoString -> MisoString -> MisoString -> View ctx Model Action
+labelled :: MisoString -> MisoString -> MisoString -> View ctx props Model Action
 labelled cls label val =
     H.div_
         [P.class_ cls]
@@ -386,7 +386,7 @@ labelled cls label val =
         , H.div_ [P.class_ "value"] [text val]
         ]
 
-infoBox :: MisoString -> MisoString -> View ctx Model Action
+infoBox :: MisoString -> MisoString -> View ctx props Model Action
 infoBox = labelled "infobox"
 
 -----------------------------------------------------------------------------
@@ -397,7 +397,7 @@ infoBox = labelled "infobox"
 the code of the key it is labelled with, so touch and keyboard controls
 share a single code path and cannot drift apart.
 -}
-tapKey :: MisoString -> Int -> [View ctx Model Action] -> View ctx Model Action
+tapKey :: MisoString -> Int -> [View ctx props Model Action] -> View ctx props Model Action
 tapKey cls code =
     H.button_
         [ P.class_ cls
@@ -410,7 +410,7 @@ the two side columns: the numbers worth watching while playing, the depth
 indicator turned on its side, and the game-over notice that otherwise
 lives in the right column.
 -}
-touchStrip :: Model -> View ctx Model Action
+touchStrip :: Model -> View ctx props Model Action
 touchStrip m =
     H.div_ [P.class_ "tstrip"] $
         [ H.div_
@@ -433,7 +433,7 @@ rotations on the left, laid out like the Q\/W\/E and A\/S\/D keys they
 stand for so the left thumb reaches all of them, the four moves on the
 right, and the three commands along the bottom.
 -}
-touchPad :: Model -> View ctx Model Action
+touchPad :: Model -> View ctx props Model Action
 touchPad m =
     H.div_
         [P.class_ "touch"]
@@ -528,7 +528,7 @@ pointsOf ps = ms (unwords [pt p | p <- ps])
   where
     pt (a, b) = fromMisoString (msd a) <> "," <> fromMisoString (msd b)
 
-poly :: MisoString -> MisoString -> MisoString -> [(Double, Double)] -> View ctx Model Action
+poly :: MisoString -> MisoString -> MisoString -> [(Double, Double)] -> View ctx props Model Action
 poly fillCol strokeCol w ps =
     S.polygon_
         [ SP.points_ (pointsOf ps)
@@ -537,7 +537,7 @@ poly fillCol strokeCol w ps =
         , SP.strokeWidth_ w
         ]
 
-lineSeg :: MisoString -> MisoString -> (Double, Double) -> (Double, Double) -> View ctx Model Action
+lineSeg :: MisoString -> MisoString -> (Double, Double) -> (Double, Double) -> View ctx props Model Action
 lineSeg strokeCol w (ax, ay) (bx, by) =
     S.line_
         [ SP.x1_ (msd ax)
@@ -552,7 +552,7 @@ gridColor :: MisoString
 gridColor = "#00aa00"
 
 -- | The green wireframe of the empty pit.
-pitGrid :: Setup -> [View ctx Model Action]
+pitGrid :: Setup -> [View ctx props Model Action]
 pitGrid s =
     concat
         [ [poly "none" gridColor "1" (ring (fi z)) | z <- [0 .. d]]
@@ -598,7 +598,7 @@ sideColor d z = snd (palette !! paletteIx d z)
 plus any side faces that look toward the viewer and are not hidden by a
 neighbouring cube in the same layer.
 -}
-wellCubes :: Setup -> [Cell] -> [View ctx Model Action]
+wellCubes :: Setup -> [Cell] -> [View ctx props Model Action]
 wellCubes s w = concat [layerViews z | z <- [setupD s - 1, setupD s - 2 .. 0]]
   where
     cx = fi (setupW s) / 2
@@ -641,7 +641,7 @@ back by the not-yet-elapsed part of the 90 degree turn about the piece
 centroid (and translated back along any wall-kick offset), so the
 wireframe sweeps smoothly into its final resting orientation.
 -}
-pieceWire :: Setup -> Maybe Spin -> [Cell] -> [View ctx Model Action]
+pieceWire :: Setup -> Maybe Spin -> [Cell] -> [View ctx props Model Action]
 pieceWire s msp cs =
     [lineSeg "#ffffff" "1.5" (corner a) (corner b) | (a, b) <- outlineEdges cs]
   where
