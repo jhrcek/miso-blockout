@@ -249,6 +249,8 @@ data Model = Model
     -- ^ cells locked into the pit
     , _piece :: [Cell]
     -- ^ absolute cells of the falling piece
+    , _target :: [Cell]
+    -- ^ practice mode only: where the falling piece should land
     , _spin :: Maybe Spin
     -- ^ rotation animation in flight, if any
     , _pendingLock :: Bool
@@ -275,6 +277,7 @@ initialModel =
         , _practice = False
         , _well = []
         , _piece = []
+        , _target = []
         , _spin = Nothing
         , _pendingLock = False
         , _score = 0

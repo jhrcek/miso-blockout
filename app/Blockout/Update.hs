@@ -17,6 +17,7 @@ import Data.Char (isPrint)
 import Data.Foldable (for_)
 import Data.List (insertBy)
 import Data.Ord (Down (..), comparing)
+import qualified Data.Set as Set
 import Miso hiding (status, (!!))
 import qualified Miso.Event.Decoder as D
 import Miso.JSON (withObject, (.!=), (.:), (.:?))
@@ -24,8 +25,10 @@ import Miso.Lens
 import Miso.Random (replicateRM)
 
 import Blockout.Key
+import Blockout.Mechanics
 import Blockout.Persist
 import Blockout.Pieces
+import Blockout.Solver
 import Blockout.Types
 
 -----------------------------------------------------------------------------
@@ -100,12 +103,15 @@ updateModel = \case
             cells = spawnCells (_setup m) proto
         spin .= Nothing
         pendingLock .= False
-        if fits (_setup m) (_well m) cells
+        if fits (_setup m) (wellSet m) cells
             then do
                 piece .= cells
+                -- the hint is for practising only, never for a scored game
+                target .= if _practice m then targetPlacement (_setup m) (_well m) cells else []
                 ticks .= 0
             else do
                 piece .= []
+                target .= []
                 status .= Over
     Activate item -> runMenu item
     PickLevel n -> pickLevel n
@@ -126,6 +132,7 @@ resetGame :: Effect parent props Model Action
 resetGame = do
     well .= []
     piece .= []
+    target .= []
     spin .= Nothing
     pendingLock .= False
     score .= 0
@@ -339,14 +346,9 @@ gameKey m code = case _status m of
 -- Gameplay
 -----------------------------------------------------------------------------
 
-fits :: Setup -> [Cell] -> [Cell] -> Bool
-fits s w = all ok
-  where
-    ok c@(x, y, z) =
-        inRange (0, setupW s - 1) x
-            && inRange (0, setupL s - 1) y
-            && inRange (0, setupD s - 1) z
-            && c `notElem` w
+-- | The locked cubes, as a set for the collision checks.
+wellSet :: Model -> Set.Set Cell
+wellSet = Set.fromList . _well
 
 spawnPiece :: Effect parent props Model Action
 spawnPiece = do
@@ -383,25 +385,17 @@ everyTicks n act = do
 tryMove :: Int -> Int -> Effect parent props Model Action
 tryMove dx dy = do
     m <- use this
-    let moved = [(x + dx, y + dy, z) | (x, y, z) <- _piece m]
-    when (fits (_setup m) (_well m) moved) (piece .= moved)
-
-down :: Int -> [Cell] -> [Cell]
-down k cs = [(x, y, z + k) | (x, y, z) <- cs]
+    for_ (movePiece (_setup m) (wellSet m) dx dy (_piece m)) (piece .=)
 
 -- | How far the piece can still fall.
 maxDescent :: Model -> Int
-maxDescent m = descend 0
-  where
-    descend k
-        | fits (_setup m) (_well m) (down (k + 1) (_piece m)) = descend (k + 1)
-        | otherwise = k
+maxDescent m = dropDistance (_setup m) (wellSet m) (_piece m)
 
 stepDown :: Effect parent props Model Action
 stepDown = do
     m <- use this
     let moved = down 1 (_piece m)
-    if fits (_setup m) (_well m) moved
+    if fits (_setup m) (wellSet m) moved
         then piece .= moved
         else lockPiece
 
@@ -435,20 +429,9 @@ lockPiece :: Effect parent props Model Action
 lockPiece = do
     m <- use this
     let s = _setup m
-        w0 = _piece m ++ _well m
-        full =
-            [ z
-            | z <- [0 .. setupD s - 1]
-            , length [() | (_, _, cz) <- w0, cz == z] == setupW s * setupL s
-            ]
-        w1 =
-            [ (x, y, z + length (filter (> z) full))
-            | (x, y, z) <- w0
-            , z `notElem` full
-            ]
+        (w1, n) = clearLayers s (_piece m ++ _well m)
         lvl = level m
         pf = pitFactor s
-        n = length full
         pieceScore = length (_piece m) * (lvl + 1) * setWeight (setupSet s) * pf
         layerScore = 100 * (lvl + 1) * n * n * pf
         -- emptying the whole pit earns a big bonus (manual p.12)
@@ -457,6 +440,7 @@ lockPiece = do
             | otherwise = 0
     well .= w1
     piece .= []
+    target .= []
     spin .= Nothing
     pendingLock .= False
     cubes += length (_piece m)
@@ -464,82 +448,14 @@ lockPiece = do
     score += pieceScore + layerScore + clearBonus
     spawnPiece
 
------------------------------------------------------------------------------
--- Rotation. Pieces rotate about the center of their bounding box, with a
--- few "kick" offsets tried so rotation works next to walls.
------------------------------------------------------------------------------
-
-{- | Turn a cell of a shape by 90 degrees within the shape's bounding box,
-given the box's size along each axis. The result stays within a box of the
-same size with its corner at the origin, just with two sides swapped.
--}
-rotateCell :: Axis -> Turn -> (Int, Int, Int) -> Cell -> Cell
-rotateCell axis turn (sx, sy, sz) (x, y, z) = case (axis, turn) of
-    (X, CW) -> (x, sz - 1 - z, y)
-    (X, CCW) -> (x, z, sy - 1 - y)
-    (Y, CW) -> (sz - 1 - z, y, x)
-    (Y, CCW) -> (z, y, sx - 1 - x)
-    (Z, CW) -> (sy - 1 - y, x, z)
-    (Z, CCW) -> (y, sx - 1 - x, z)
-
-{- | Round @n@/2 to the nearest integer, breaking ties away from zero.
-Recentering a rotated piece with this (rather than 'div', which floors)
-keeps rotation a true cyclic action: the four offsets accumulated over a
-full turn sum to zero, so repeating any rotation key returns the piece to
-its starting cells instead of drifting sideways.
--}
-roundHalf :: Int -> Int
-roundHalf n = signum n * ((abs n + 1) `div` 2)
-
-{- | Attempt a rotation of the falling piece, and animate it if it succeeds.
-
-The piece turns about the centre of its bounding box. If it does not fit
-in place it is nudged back inside the pit: sideways off a wall, or
-downward when a piece that grew taller would poke out through the mouth.
-Upward kicks are deliberately excluded, as they would let repeated presses
-of one rotation key climb the piece back up against gravity. Away from the
-walls the in-place rotation always fits, so repeating any rotation key
-cycles the piece through its orientations and back to its starting cells.
+{- | Attempt a rotation of the falling piece (see 'rotatePiece'), and
+animate it if it succeeds.
 -}
 tryRotate :: Axis -> Turn -> Effect parent props Model Action
 tryRotate axis turn = do
     m <- use this
-    unless (null (_piece m)) $ do
-        let cs = _piece m
-            ((mnx, mny, mnz), (mxx, mxy, mxz)) = bounds cs
-            (sx, sy, sz) = (mxx - mnx + 1, mxy - mny + 1, mxz - mnz + 1)
-            rel' = [rotateCell axis turn (sx, sy, sz) (x - mnx, y - mny, z - mnz) | (x, y, z) <- cs]
-            (_, (mxx', mxy', mxz')) = bounds rel'
-            (sx', sy', sz') = (mxx' + 1, mxy' + 1, mxz' + 1)
-            ox = mnx + roundHalf (sx - sx')
-            oy = mny + roundHalf (sy - sy')
-            oz = mnz + roundHalf (sz - sz')
-            -- Try the rotation in place first, then nudge it back inside
-            -- the pit: sideways off a wall, or downward (only as far as is
-            -- needed to clear the mouth, z >= 0). Never upward.
-            kicks =
-                (0, 0, 0)
-                    : [ (kx, ky, 0)
-                      | (kx, ky) <-
-                            [ (-1, 0)
-                            , (1, 0)
-                            , (0, -1)
-                            , (0, 1)
-                            , (-2, 0)
-                            , (2, 0)
-                            , (0, -2)
-                            , (0, 2)
-                            ]
-                      ]
-                    ++ [(0, 0, kz) | kz <- [1 .. max 0 (negate oz)]]
-            attempts =
-                [ [(x + ox + kx, y + oy + ky, z + oz + kz) | (x, y, z) <- rel']
-                | (kx, ky, kz) <- kicks
-                ]
-        case filter (fits (_setup m) (_well m)) attempts of
-            (good : _) -> do
-                let (px, py, pz) = centroid cs
-                    (gx, gy, gz) = centroid good
-                piece .= good
-                spin .= Just (Spin axis turn (px - gx, py - gy, pz - gz) 0)
-            [] -> pure ()
+    for_ (rotatePiece (_setup m) (wellSet m) axis turn (_piece m)) $ \good -> do
+        let (px, py, pz) = centroid (_piece m)
+            (gx, gy, gz) = centroid good
+        piece .= good
+        spin .= Just (Spin axis turn (px - gx, py - gy, pz - gz) 0)

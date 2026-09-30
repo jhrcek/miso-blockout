@@ -302,7 +302,10 @@ pitSvg m =
             -- cannot study the position while the game is frozen.
             ++ ( if _status m == Paused
                     then [banner "PAUSED"]
-                    else wellCubes s (_well m) ++ pieceWire s (_spin m) (_piece m)
+                    else
+                        wellCubes s (_well m)
+                            ++ targetWire s (_target m)
+                            ++ pieceWire s (_spin m) (_piece m)
                )
         )
   where
@@ -657,6 +660,27 @@ pieceWire s msp cs =
                         , ry + cy0 + (1 - t) * oy
                         , rz + cz0 + (1 - t) * oz
                         )
+
+{- | Practice mode's hint: the outline of the falling piece where it should
+land, dashed so it cannot be mistaken for the piece itself.
+-}
+targetWire :: Setup -> [Cell] -> [View ctx props Model Action]
+targetWire s cs =
+    [ S.line_
+        [ SP.x1_ (msd ax)
+        , SP.y1_ (msd ay)
+        , SP.x2_ (msd bx)
+        , SP.y2_ (msd by)
+        , SP.stroke_ yellow
+        , SP.strokeWidth_ "1.5"
+        , SP.strokeDasharray_ "4 3"
+        ]
+    | (a, b) <- outlineEdges cs
+    , let (ax, ay) = corner a
+          (bx, by) = corner b
+    ]
+  where
+    corner (x, y, z) = proj s (fi x) (fi y) (fi z)
 
 {- | Rotate a vector by @theta@ radians about the X, Y or Z axis. At
 +90 degrees this agrees with the linear part of the corresponding

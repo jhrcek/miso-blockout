@@ -45,8 +45,10 @@ executable miso-blockout
   main-is:          Main.hs
   other-modules:
     Blockout.Key
+    Blockout.Mechanics
     Blockout.Persist
     Blockout.Pieces
+    Blockout.Solver
     Blockout.Types
     Blockout.Update
     Blockout.View
